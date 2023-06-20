@@ -3,6 +3,7 @@ library(dplyr)
 library(sf)
 library(lubridate)
 library(raster)
+library(ncdf4)
 
 # Load radar data
 radar_file = file.path(downloads_dir(), "radar.nc")
