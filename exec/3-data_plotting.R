@@ -106,7 +106,7 @@ plot = ggplot(df) +
   theme_light() +
   theme(
     text = element_text(size = 15),
-    panel.grid = element_line(colour = "black", linewidth = .1),
+    panel.grid = element_line(colour = "black", linewidth = .001, color = "gray", linetype = "dashed"),
     panel.ontop = TRUE,
     panel.background = element_blank()) +
   geom_sf(data = rissa, shape = 17, size = 1.5) +
