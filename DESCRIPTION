@@ -22,5 +22,8 @@ Imports:
     stars,
     inlabru,
     sn,
-    splancs
+    splancs,
+    rnaturalearthdata
+
+
 
