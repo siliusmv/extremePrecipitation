@@ -1,4 +1,47 @@
 #' @export
+a_model = function(y0,
+                   threshold,
+                   dist_to_s0,
+                   init,
+                   priors,
+                   is_fixed = rep(FALSE, n_theta),
+                   debug = FALSE) {
+  n_theta = 5
+  stopifnot(length(y0) == length(dist_to_s0))
+  stopifnot(all(y0 >= threshold))
+  stopifnot(length(is_fixed) == length(init))
+  stopifnot(is.logical(is_fixed))
+  stopifnot(length(init) == n_theta)
+  stopifnot(all(c(
+    "lambda0", "lambda_lambda", "kappa0", "lambda_kappa", "kappa_kappa")[!is_fixed]
+    %in% names(priors)))
+  stopifnot(all(sapply(priors, length) == 2))
+
+  args = list(debug = debug)
+
+  # The name and location of the required c-function for defining the cgeneric model
+  args$model = "a_model"
+  args$shlib = file.path(cgeneric_dir(), "a.so")
+
+  # Put all the arguments into args in the order defined in the c-function
+  args$n = length(y0)
+  args$is_fixed = as.integer(is_fixed)
+  args$y0 = y0
+  args$dist_to_s0 = dist_to_s0
+  args$threshold = threshold
+  args$init = init
+
+  if (!is_fixed[1]) args$lambda0_prior = priors$lambda0
+  if (!is_fixed[2]) args$lambda_lambda_prior = priors$lambda_lambda
+  if (!is_fixed[3]) args$kappa0_prior = priors$kappa0
+  if (!is_fixed[4]) args$lambda_kappa_prior = priors$lambda_kappa
+  if (!is_fixed[5]) args$kappa_kappa_prior = priors$kappa_kappa
+
+  # Define the model
+  do.call(INLA::inla.cgeneric.define, args)
+}
+
+#' @export
 spde_b_model = function(n,
                         y0,
                         spde,
@@ -30,7 +73,7 @@ spde_b_model = function(n,
   args = list(debug = debug)
 
   # The name and location of the required c-function for defining the cgeneric model
-  args$model = "spde_b_model_final"
+  args$model = "spde_b_model"
   args$shlib = file.path(cgeneric_dir(), "b.so")
 
   # Put all the arguments into args in the order defined in the c-function

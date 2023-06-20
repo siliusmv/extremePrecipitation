@@ -1,4 +1,4 @@
-GCC = gcc-12
+GCC = gcc-13
 
 .PHONY: test clean all
 
