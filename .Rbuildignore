@@ -1,0 +1,7 @@
+^renv$
+^renv\.lock$
+^LICENSE\.md$
+^README\.md$
+^cgeneric-data$
+^\.git$
+^raw_data$

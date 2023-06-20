@@ -1,0 +1,9 @@
+
+# Compiled c-files
+*.so
+*.o
+*/a.out
+
+*.DS_Store
+
+# Big data objects
