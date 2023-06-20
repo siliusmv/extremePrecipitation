@@ -32,6 +32,7 @@ coords$height[coords$height < 0] = 0 # a few locations get negative heights
 time_series = data[1, 1]
 times = colnames(time_series) |>
   sub("X", "", x = _) |>
+  sub("(\\d{4}.\\d{2}.\\d{2})$", "\\1.00.00.00", x = _) |>
   lubridate::ymd_hms()
 
 # Check if the time series is monotonely increasing
