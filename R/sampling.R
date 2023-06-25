@@ -158,3 +158,64 @@ rnorm_spde = function(n, Q, ...) {
   rownames(res) = NULL
   res
 }
+
+#' @export
+simulate_spat_probit_posterior = function(hyperpar_samples,
+                                          fixed_samples,
+                                          coords,
+                                          spde,
+                                          s0_index,
+                                          constr_index,
+                                          create_X,
+                                          create_Q,
+                                          replace_zeros_at_s0 = FALSE,
+                                          verbose = FALSE,
+                                          n_cores = 1,
+                                          n_per_sample = 1) {
+  n_samples = nrow(hyperpar_samples)
+  stopifnot(nrow(fixed_samples) == n_samples)
+
+  s0 = coords[s0_index, , drop = FALSE]
+  A = inla.spde.make.A(spde$mesh, coords)
+  if (!is.null(constr_index)) A = A[, -constr_index]
+
+  dist_to_s0 = as.numeric(dist_euclid(s0, coords))
+  X = create_X(dist_to_s0, df = FALSE)
+
+  simulations = local({
+    RNGkind("L'Ecuyer-CMRG")
+    parallel::mclapply(
+      X = seq_len(n_samples),
+      mc.cores = n_cores,
+      FUN = function(i) {
+        hyperpar = hyperpar_samples[i, ]
+        fixed_par = fixed_samples[i, ]
+
+        Q = create_Q(hyperpar, spde)
+        if (!is.null(constr_index)) Q = Q[-constr_index, -constr_index]
+
+        mean_trend = as.numeric(X %*% fixed_par)
+
+        simulations = matrix(NA_real_, nrow = nrow(A), ncol = n_per_sample)
+        bad_index = seq_len(n_per_sample)
+        while (TRUE) {
+          simulations[, bad_index] = as.matrix(A %*% rnorm_spde(length(bad_index), Q))
+          p = pnorm(simulations[, bad_index] + mean_trend)
+          simulations[, bad_index] = as.integer(rbinom(length(p), 1, p))
+          bad_index = which(simulations[s0_index, ] == 0)
+          if (!replace_zeros_at_s0 || length(bad_index) == 0) break
+        }
+
+        if (verbose && (i %% 10 == 0)) {
+          message("Finished sample nr. ", i, " / ", n_samples)
+        }
+
+        simulations
+      })
+  })
+
+  list(
+    simulations = do.call(cbind, simulations),
+    coords = coords,
+    dist = dist_to_s0)
+}
