@@ -398,12 +398,30 @@ f = function(par, beta, dist) {
   diff = diff[!is.na(diff) & is.finite(diff)]
   sum(diff^2)
 }
+f = function(par, beta, dist) {
+  beta0 = exp(par[1]) / (1 + exp(par[1]))
+  lambda = exp(par[2])
+  kappa = exp(par[3])
+  beta_est = beta0 * exp(-(dist / lambda) ^ kappa)
+  diff = beta_est - beta
+  diff = diff[!is.na(diff) & is.finite(diff)]
+  sum(diff^2)
+}
 
 beta_par = optim(
-  par = log(c(.5, 30, .5)),
+  #par = log(c(.5, 30, .5)),
+  par = c(1, log(30), log(.5)),
   fn = f,
   beta = moments$beta,
   dist = moments$dist)
+
+moments |>
+  dplyr::mutate(
+    beta2 = exp(beta_par$par[1]) * exp(-(dist / exp(beta_par$par[2]))^exp(beta_par$par[3]))) |>
+    #beta2 = exp(beta_par$par[1]) * exp(-dist / exp(beta_par$par[2]))) |>
+  ggplot() +
+  geom_line(aes(x = dist, y = beta, col = y0, group = y0)) +
+  geom_line(aes(x = dist, y = beta2), col = "red")
 
 local({
   tmp = readRDS(filename)
@@ -449,6 +467,17 @@ get_b_func = function(theta) {
     matrix(b, nrow = length(dist), ncol = length(y))
   }
 }
+get_b_func = function(theta) {
+  beta0 = exp(theta[4]) / (1 + exp(theta[4]))
+  lambda_b = exp(theta[5])
+  kappa_b = exp(theta[6])
+  function(y, dist) {
+    beta = beta0 * exp(-(rep(dist, length(y)) / lambda_b)^kappa_b)
+    b = rep(y, each = length(dist)) ^ beta
+    matrix(b, nrow = length(dist), ncol = length(y))
+  }
+}
+
 
 local({
   tmp = readRDS(filename)
@@ -548,7 +577,26 @@ for (my_index in seq_len(n_s0)) {
     na_index = which(is.na(df$y))
     df = df[-na_index, ]
 
+    #f2 = function(θ, y, d, y0) {
+    #  λ0 = exp(θ[1])
+    #  λ_λ = exp(θ[2])
+    #  κ0 = exp(θ[3])
+    #  λ_κ = exp(θ[4])
+    #  κ_κ = exp(θ[5])
+    #  λ = λ0 * exp(-(y0 - threshold) / λ_λ)
+    #  κ = κ0 * exp(-((y0 - threshold) / λ_κ)^κ_κ)
+    #  a = y0 * exp(-(d / λ)^κ)
+    #  sum((a - y)^2)
+    #}
+    #a_par = optim(
+    #  par = readRDS(filename)$a_pars2$par,
+    #  fn = f2,
+    #  y = df$y,
+    #  d = df$dist,
+    #  y0 = df$y0)
+
     beta_par = readRDS(filename)$beta_par
+    #beta_par = list(par = c(-.19, 2.16, -.68))
 
     spde_priors = list(
       rho = c(60, .95),
@@ -556,15 +604,20 @@ for (my_index in seq_len(n_s0)) {
       beta0 = c(beta_par$par[1], 5),
       lambda = c(beta_par$par[2], 5),
       kappa = c(beta_par$par[3], 5))
-    b_model = spde_b_model(
+    #b_model = spde_b_model(
+    b_model = spde_b_model2(
       n = data$n,
       y0 = unlist(data$y0),
       spde = multimesh_data$spde,
-      init = c(log(20), log(1.3), beta_par$par),
+      init = c(log(40), log(1.3), beta_par$par),
+      #init = c(log(20), log(1.3), beta_par$par, 0),
+      #is_fixed = c(rep(FALSE, 4), TRUE),
       priors = spde_priors,
       dist_to_s0 = multimesh_data$dist)
 
     a_par = readRDS(filename)$a_pars2
+    #a_par = list(par = c(3.6, 1.4, -.1, 2.3, 2.7))
+
     a_priors = list(
       lambda0 = c(a_par$par[1], 5),
       lambda_lambda = c(a_par$par[2], 5),
@@ -612,7 +665,7 @@ for (my_index in seq_len(n_s0)) {
       data = inla.stack.data(stack),
       control.compute = list(config = TRUE),
       control.family = list(hyper = list(prec = list(
-        initial = 4,
+        initial = 2,
         prior = "pc.prec",
         param = c(1, .01)))),
       control.inla = list(int.strategy = "eb"),
@@ -620,6 +673,10 @@ for (my_index in seq_len(n_s0)) {
       control.predictor = list(A = inla.stack.A(stack)),
       verbose = TRUE,
       num.threads = 1)
+
+    #cpu1 = fit$cpu
+
+    #fit = inla.rerun(fit)
 
     set.seed(1)
     samples = inla.hyperpar.sample(
@@ -632,7 +689,9 @@ for (my_index in seq_len(n_s0)) {
       samples = samples,
       mode = fit$mode$theta,
       s0 = radar$s0[my_index],
+      #cpu = list(cpu1 = cpu1, cpu2 = fit$cpu),
       cpu = fit$cpu,
+      mlik = fit$mlik,
       hyperpar = fit$summary.hyperpar,
       time_index = data$time_index,
       obs_index = data$obs_index)
@@ -672,8 +731,9 @@ s0_index = sapply(
 
 pb = progress_bar(length(s0_index))
 estimated_moments = list()
+fits = readRDS(filename)
 for (i in seq_along(s0_index)) {
-  fits = readRDS(filename)
+#for (i in seq_along(fits$inla)) {
   fit = fits$inla[[i]]
   matern_corr = function(dist, rho, nu = 1.5) {
     kappa = sqrt(8 * nu) / rho
@@ -695,7 +755,9 @@ for (i in seq_along(s0_index)) {
         sqrt(1 - matern_corr(d, exp(fit$samples[j, 2]), .5)^2)
       res$arrays$a[, , j] = fits$get_a_func(fit$samples[j, ])(y0, d)
       res$arrays$alpha[, , j] = res$arrays$a[, , j] / rep(y0, each = length(d))
+      #stop("here we need a separate b_func for the last fit!")
       res$arrays$beta[, , j] = log(fits$get_b_func(fit$samples[j, ])(exp(1), d))
+      #res$arrays$beta[, , j] = log(get_b_func(fit$samples[j, ])(exp(1), d))
       res$arrays$zeta[, , j] = sqrt(
         fits$get_b_func(fit$samples[j, ])(y0, d)^2 * rep(res$mats$sd[, j]^2, length(y0))
         + 1 / fits$get_tau(fit$samples[j, ]))

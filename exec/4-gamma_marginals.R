@@ -8,13 +8,18 @@ library(inlabru)
 INLA::inla.setOption(pardiso.license = "~/.R/licences/pardiso.lic")
 INLA::inla.pardiso.check()
 
+RhpcBLASctl::blas_set_num_threads(1)
+RhpcBLASctl::omp_set_num_threads(1)
+
 zero_threshold = .1
 filename = file.path(results_dir(), "gamma_model.rds")
+if (!file.exists(filename)) saveRDS(list(), filename)
 
 # ==============================================================================
 # Load the radar data
 # ==============================================================================
 radar = readRDS(file.path(downloads_dir(), "radar.rds"))
+#radar = readRDS("~/spatialEVT/raw_data/downloads/radar.rds")
 coords = st_coordinates(radar$coords)
 heights = radar$coords$height
 n_loc = nrow(coords)
@@ -278,8 +283,7 @@ if (length(bad_index) > 0) {
 # Start modelling the data
 # ==============================================================================
 
-#delta_obs = 2
-delta_obs = 1
+delta_obs = 2
 obs_index = get_s0_index(coords, delta_obs)
 
 df = data.frame(
@@ -322,14 +326,15 @@ fit = bru(
     bru_verbose = TRUE,
     inla.mode = "experimental"))
 
-cpu1 = fit$cpu
+#cpu1 = fit$cpu.used
 
-fit = bru_rerun(fit)
+#fit = bru_rerun(fit)
 
 summary(fit)
 
 # Save the necessary results of the model fit
 res = local({
+  set.seed(1)
   all_days = sort(unique(radar$day))
   all_years = sort(unique(radar$year))
   pred_df = data.frame(
@@ -339,6 +344,7 @@ res = local({
     object = fit,
     data = pred_df,
     formula = ~ exp(day),
+    n.samples = 500L,
     seed = 1)
   list(
     prob = prob,
@@ -350,12 +356,12 @@ res = local({
     zero_threshold = zero_threshold,
     delta_obs = delta_obs,
     coords = coords[obs_index, ],
-    cpu = fit$cpu.used,
+    #cpu = list(first = cpu1, second = fit$cpu.used),
+    cpu = fit$cpu,
     mlik = fit$mlik)
 })
 
 saveRDS(res, filename)
-
 
 # ==============================================================================
 # Plot the results

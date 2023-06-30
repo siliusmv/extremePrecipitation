@@ -6,8 +6,6 @@ library(dplyr)
 library(tidyr)
 library(scales)
 
-"CHECK IF WE CAN USE BETTER INITIAL VALUES FOR THE GAMMA FIT!!!"
-
 gp_filename = file.path(results_dir(), "gp_model.rds")
 gamma_filename = file.path(results_dir(), "gamma_model.rds")
 intensity_filename = file.path(results_dir(), "intensity_process.rds")
@@ -440,7 +438,7 @@ plot = plot_data |>
 
 plot_tikz(
   plot,
-  #file = file.path(image_dir(), "precipitation_simulations.pdf"),
+  file = file.path(image_dir(), "precipitation_simulations.pdf"),
   width = 10,
   height = 12)
 
@@ -677,10 +675,12 @@ plot1 = df |>
   dplyr::mutate(name = factor(
     name, levels = c("Observations", levels(simulations$pretty_names)))) |>
   ggplot() +
-  geom_line(aes(x = d, y = p, group = name, col = name, linewidth = name, linetype = name)) +
-  labs(x = "$d$", y = "$\\hat p(d)$", col = "", linetype = "", linewidth = "") +
+  geom_line(aes(x = d, y = p, group = name, col = name, size = name, linetype = name)) +
+  labs(x = "$d$", y = "$\\hat p(d)$", col = "", linetype = "", size = "") +
   scale_linetype_manual(values = c("solid", rep("dashed", length(simulations$names)))) +
-  scale_linewidth_manual(values = c(1.9, rep(1.4, length(simulations$names)))) +
+  #scale_linewidth(values = c(1.9, rep(1.4, length(simulations$names)))) +
+  #scale_linewidth_discrete(range = c(1.4, 1.9)) +
+  scale_size_manual(values = c(1.5, rep(.8, length(simulations$names)))) +
   scale_color_manual(values = c("black", scales::hue_pal()(length(simulations$names)))) +
   theme_light() +
   theme(
@@ -697,10 +697,11 @@ plot2 = df |>
   dplyr::mutate(name = factor(
     name, levels = c("Observations", levels(simulations$pretty_names)))) |>
   ggplot() +
-  geom_line(aes(x = pseudo_log(m), y = p, group = name, col = name, linewidth = name, linetype = name)) +
-  labs(x = "$\\bar y$", y = "$\\hat p(\\bar y)$", col = "", linetype = "", linewidth = "") +
+  geom_line(aes(x = pseudo_log(m), y = p, group = name, col = name, size = name, linetype = name)) +
+  labs(x = "$\\bar y$", y = "$\\hat p(\\bar y)$", col = "", linetype = "", size = "") +
   scale_linetype_manual(values = c("solid", rep("dashed", length(simulations$names)))) +
-  scale_linewidth_manual(values = c(1.9, rep(1.4, length(simulations$names)))) +
+  #scale_linewidth_discrete(values = c(1.9, rep(1.4, length(simulations$names)))) +
+  scale_size_manual(values = c(1.5, rep(.8, length(simulations$names)))) +
   scale_color_manual(values = c("black", scales::hue_pal()(length(simulations$names)))) +
   scale_x_continuous(
     breaks = pseudo_log(c(0, exp(0:3))),
@@ -746,7 +747,7 @@ plot3 = plot_data |>
 plot3 = latex_friendly_map_plot(plot3)
 
 plot = patchwork::wrap_plots(
-  plot3, plot1 + guides(col = "none", linewidth = "none", linetype = "none"), plot2,
+  plot3, plot1 + guides(col = "none", size = "none", linetype = "none"), plot2,
   nrow = 1,
   widths = c(.6, .2, .2)) +
   patchwork::plot_annotation(tag_levels = "A", tag_suffix = ")")

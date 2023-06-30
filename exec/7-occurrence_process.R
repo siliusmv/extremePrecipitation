@@ -374,6 +374,7 @@ for (my_index in seq_along(s0_index)) {
     hyperpar_samples = hyperpar_samples,
     constr = !is.null(constr_index),
     cpu = fit$cpu,
+    mlik = fit$mlik,
     hyperpar = fit$summary.hyperpar,
     summary.hyperpar = fit$summary.hyperpar,
     summary.fixed = fit$summary.fixed)
@@ -414,6 +415,7 @@ for (my_index in seq_along(s0_index)) {
   res$non_spatial = list(
     fixed_samples = fixed_samples,
     cpu = fit$cpu,
+    mlik = fit$mlik,
     hyperpar = fit$summary.hyperpar,
     summary.fixed = fit$summary.fixed)
 

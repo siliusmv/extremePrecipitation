@@ -10,6 +10,7 @@ INLA::inla.pardiso.check()
 
 gamma_filename = file.path(results_dir(), "gamma_model.rds")
 filename = file.path(results_dir(), "gp_model.rds")
+if (!file.exists(filename)) saveRDS(list(), filename)
 
 # ==============================================================================
 # Prepare the data for modelling with the GP
@@ -241,6 +242,7 @@ summary(fit)
 
 # Save the necessary results of the model fit
 res = local({
+  set.seed(1)
   all_days = sort(unique(radar$day))
   all_years = sort(unique(radar$year))
   pred_df = data.frame(
