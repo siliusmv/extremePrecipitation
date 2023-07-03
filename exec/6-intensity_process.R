@@ -604,14 +604,12 @@ for (my_index in seq_len(n_s0)) {
       beta0 = c(beta_par$par[1], 5),
       lambda = c(beta_par$par[2], 5),
       kappa = c(beta_par$par[3], 5))
-    #b_model = spde_b_model(
-    b_model = spde_b_model2(
+    b_model = spde_b_model(
       n = data$n,
       y0 = unlist(data$y0),
       spde = multimesh_data$spde,
-      init = c(log(40), log(1.3), beta_par$par),
-      #init = c(log(20), log(1.3), beta_par$par, 0),
-      #is_fixed = c(rep(FALSE, 4), TRUE),
+      #init = c(log(40), log(1.3), beta_par$par),
+      init = c(log(40), log(1.2), beta_par$par),
       priors = spde_priors,
       dist_to_s0 = multimesh_data$dist)
 
@@ -674,10 +672,6 @@ for (my_index in seq_len(n_s0)) {
       verbose = TRUE,
       num.threads = 1)
 
-    #cpu1 = fit$cpu
-
-    #fit = inla.rerun(fit)
-
     set.seed(1)
     samples = inla.hyperpar.sample(
       n = 1e3,
@@ -689,7 +683,6 @@ for (my_index in seq_len(n_s0)) {
       samples = samples,
       mode = fit$mode$theta,
       s0 = radar$s0[my_index],
-      #cpu = list(cpu1 = cpu1, cpu2 = fit$cpu),
       cpu = fit$cpu,
       mlik = fit$mlik,
       hyperpar = fit$summary.hyperpar,
