@@ -19,7 +19,6 @@ if (!file.exists(filename)) saveRDS(list(), filename)
 # Load the radar data
 # ==============================================================================
 radar = readRDS(file.path(downloads_dir(), "radar.rds"))
-#radar = readRDS("~/spatialEVT/raw_data/downloads/radar.rds")
 coords = st_coordinates(radar$coords)
 heights = radar$coords$height
 n_loc = nrow(coords)
@@ -118,51 +117,6 @@ plot_tikz(
 # Plot statistics of the marginal distributions in time and space
 # ------------------------------------------------------------------------------
 info = local({
-  res = apply(
-    radar$data,
-    2,
-    function(x) {
-      sapply(
-        X = unique(radar$month),
-        FUN = function(m) {
-          index = which(x > zero_threshold & radar$month == m)
-          c(mean = mean(x[index], na.rm = TRUE),
-            sd = sd(x[index], na.rm = TRUE),
-            median = median(x[index], na.rm = TRUE),
-            upper = as.numeric(quantile(x[index], .95, na.rm = TRUE)))
-        }) |>
-        as.numeric()
-    })
-  res = cbind(coords, t(res)) |>
-    as.data.frame() |>
-    tidyr::pivot_longer(-c(X, Y)) |>
-    dplyr::mutate(
-      month = rep(rep(c("June", "July", "August"), each = 4), n_loc),
-      name = rep(rep(c("mean", "sd", "median", "upper"), 3), n_loc),
-      height = rep(heights, each = 12)) |>
-    dplyr::mutate(month = factor(month, levels = c("June", "July", "August")))
-  res
-})
-
-spatial_plots = list()
-for (name in unique(info$name)) {
-  spatial_plots[[name]] = info |>
-    dplyr::filter(name == !!name) |>
-    ggplot() +
-    geom_sf(data = rissa) +
-    geom_raster(aes(x = X, y = Y, fill = value)) +
-    facet_wrap(~month, nrow = 1) +
-    scale_fill_viridis_c() +
-    labs(x = "Easting", y = "Northing", fill = "mm/h") +
-    theme_light() +
-    theme(
-      text = element_text(size = 11),
-      strip.text = element_text(colour = "black", size = 13),
-      strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0"))
-  spatial_plots[[name]] = latex_friendly_map_plot(spatial_plots[[name]])
-}
-
-info2 = local({
   res = list()
   for (y in unique(radar$year)) {
     res[[length(res) + 1]] = sapply(
@@ -187,15 +141,15 @@ info2 = local({
   dplyr::bind_rows(res)
 })
 
-temporal_plots = list()
-for (name in unique(info2$name)) {
-  temporal_plots[[name]] = info2 |>
+plots = list()
+for (name in unique(info$name)) {
+  plots[[name]] = info |>
     dplyr::filter(name == !!name) |>
     dplyr::mutate(year = factor(year)) |>
     ggplot() +
     geom_line(aes(x = week, y = value)) +
     facet_wrap(~year, nrow = 2) +
-    labs(x = "Week nr.", y = "mm/h") +
+    labs(x = "Week nr.", y = "mm/h", title = "A)") +
     theme_light() +
     theme(
       text = element_text(size = 11),
@@ -206,11 +160,11 @@ for (name in unique(info2$name)) {
 # If we have already executed this script and performed inference for the marginal models,
 # then read the results and add the fitted splined to the exploratory plot
 if (!is.null(readRDS(filename)$u)) {
-  temporal_plots$upper = local({
+  plots$upper = local({
     res = readRDS(filename)
     res$u$week = res$u$day / 7 + 1
     res$u$year = factor(res$u$year)
-    temporal_plots$upper +
+    plots$upper +
       geom_line(
         data = res$u,
         mapping = aes(x = week, y = mean),
@@ -218,46 +172,9 @@ if (!is.null(readRDS(filename)$u)) {
   })
 }
 
-pretty_names = list(
-  mean = "Mean",
-  sd = "Standard deviation",
-  median = "Median",
-  upper = "$95\\%$ quantile")
-
-plots = list()
-for (name in names(spatial_plots)) {
-  plots[[name]] = patchwork::wrap_plots(
-    spatial_plots[[name]],
-    temporal_plots[[name]],
-    nrow = 2,
-    heights = c(.55, .45)) +
-    patchwork::plot_annotation(title = pretty_names[[name]])
-}
-
-for (name in names(spatial_plots)) {
-  spatial_plots[[name]] = spatial_plots[[name]] +
-    labs(title = pretty_names[[name]])
-}
-
 plot_tikz(
   plots,
   file = file.path(image_dir(), "marginal_bulk.pdf"),
-  width = 9,
-  height = 5)
-
-plot_tikz(
-  spatial_plots,
-  file = file.path(image_dir(), "marginal_bulk_1.pdf"),
-  width = 9,
-  height = 2.8)
-
-for (name in names(temporal_plots)) {
-  temporal_plots[[name]] = temporal_plots[[name]] + labs(title = "A)")
-}
-
-plot_tikz(
-  temporal_plots,
-  file = file.path(image_dir(), "marginal_bulk_2.pdf"),
   width = 9,
   height = 2.5)
 

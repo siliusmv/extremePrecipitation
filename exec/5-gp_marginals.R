@@ -45,47 +45,7 @@ df = data.frame(
 # Do some exploratory analysis
 # ==============================================================================
 
-spatial_plots = local({
-  months = 6:8
-  month_names = c("June", "July", "August")
-  month_names = factor(month_names, levels = month_names)
-  plot_data = list()
-  for (i in seq_along(months)) {
-    plot_data[[i]] = df |>
-      dplyr::filter(month == months[i]) |>
-      dplyr::group_by(x_coord, y_coord) |>
-      dplyr::summarise(
-        median = median(y),
-        mean = mean(y),
-        sd = sd(y),
-        upper = as.numeric(quantile(y, .95))) |>
-      dplyr::mutate(
-        month = months[i],
-        month_name = month_names[i]) |>
-      tidyr::pivot_longer(c(median, mean, sd, upper))
-  }
-  plot_data = dplyr::bind_rows(plot_data)
-  res = list()
-  for (name in unique(plot_data$name)) {
-    res[[name]] = plot_data |>
-      dplyr::filter(name == !!name) |>
-      ggplot() +
-      geom_sf(data = rissa, size = .001, alpha = .001) +
-      geom_raster(aes(x = x_coord, y = y_coord, fill = value)) +
-      scale_fill_viridis_c() +
-      facet_wrap(~month_name, nrow = 1) +
-      labs(x = "Easting", y = "Northing", fill = paste("mm/h")) +
-      theme_light() +
-      theme(
-        text = element_text(size = 11),
-        strip.text = element_text(colour = "black", size = 13),
-        strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0"))
-    res[[name]] = latex_friendly_map_plot(res[[name]])
-  }
-  res
-})
-
-temporal_plots = local({
+plots = local({
   plot_data = list()
   for (y in unique(df$year)) {
     for (d in unique(df$day)) {
@@ -108,7 +68,7 @@ temporal_plots = local({
       ggplot() +
       geom_line(aes(x = week, y = value)) +
       facet_wrap(~year, nrow = 2) +
-      labs(x = "Week nr.", y = "mm/h") +
+      labs(x = "Week nr.", y = "mm/h", title = "B)") +
       theme_light() +
       theme(
         text = element_text(size = 11),
@@ -121,11 +81,11 @@ temporal_plots = local({
 # If we have already executed this script and performed inference for the marginal models,
 # then read the results and add the fitted splined to the exploratory plot
 if (!is.null(readRDS(filename)$s)) {
-  temporal_plots$median = local({
+  plots$median = local({
     res = readRDS(filename)
     res$s$week = res$s$day / 7 + 1
     res$s$year = factor(res$s$year)
-    temporal_plots$median +
+    plots$median +
       geom_line(
         data = res$s,
         mapping = aes(x = week, y = mean),
@@ -133,46 +93,9 @@ if (!is.null(readRDS(filename)$s)) {
   })
 }
 
-pretty_names = list(
-  mean = "Mean",
-  sd = "Standard deviation",
-  median = "Median",
-  upper = "$95\\%$ quantile")
-
-plots = list()
-for (name in names(spatial_plots)) {
-  plots[[name]] = patchwork::wrap_plots(
-    spatial_plots[[name]],
-    temporal_plots[[name]],
-    nrow = 2,
-    heights = c(.55, .45)) +
-    patchwork::plot_annotation(title = pretty_names[[name]])
-}
-
-for (name in names(spatial_plots)) {
-  spatial_plots[[name]] = spatial_plots[[name]] +
-    labs(title = pretty_names[[name]])
-}
-
 plot_tikz(
   plots,
   file = file.path(image_dir(), "threshold_exceedances.pdf"),
-  width = 9,
-  height = 5)
-
-plot_tikz(
-  spatial_plots,
-  file = file.path(image_dir(), "threshold_exceedances_1.pdf"),
-  width = 9,
-  height = 2.8)
-
-for (name in names(temporal_plots)) {
-  temporal_plots[[name]] = temporal_plots[[name]] + labs(title = "B)")
-}
-
-plot_tikz(
-  temporal_plots,
-  file = file.path(image_dir(), "threshold_exceedances_2.pdf"),
   width = 9,
   height = 2.5)
 
