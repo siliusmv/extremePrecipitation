@@ -811,22 +811,27 @@ for (i in seq_along(model_properties)) {
         c(")$", "; y_0)$")[c(2, 2, 2, 1, 1, 2)])))
 }
 
-plot_lims = plot_data |>
-  do.call(what = rbind) |>
-  dplyr::group_by(name) |>
-  dplyr::reframe(
-    d = c(min(d), max(d)),
-    value = c(0, max(c(upper, mean), na.rm = TRUE)))
+plot_lims = list()
 empirical_lims = readRDS(filename)$empirical_lims
-for (i in seq_along(levels(plot_lims$name))) {
-  plot_lims$value[i * 2] = max(plot_lims$value[i * 2], empirical_lims$value[i * 2])
-  plot_lims$d[i * 2] = max(plot_lims$d[i * 2], empirical_lims$dist[i * 2])
-  plot_lims$value[i * 2 - 1] = min(plot_lims$value[i * 2 - 1], empirical_lims$value[i * 2 - 1])
-  plot_lims$d[i * 2 - 1] = min(plot_lims$d[i * 2 - 1], empirical_lims$dist[i * 2 - 1])
+for (i in seq_along(plot_data)) {
+  plot_lims[[i]] = plot_data[[i]] |>
+    dplyr::group_by(name) |>
+    dplyr::reframe(
+      d = c(min(d), max(d)),
+      value = c(0, max(c(upper, mean), na.rm = TRUE)))
+  for (j in seq_along(levels(plot_lims[[i]]$name))) {
+    plot_lims[[i]]$value[j * 2] = max(plot_lims[[i]]$value[j * 2], empirical_lims$value[j * 2])
+    plot_lims[[i]]$d[j * 2] = max(plot_lims[[i]]$d[j * 2], empirical_lims$dist[j * 2])
+    plot_lims[[i]]$value[j * 2 - 1] = min(plot_lims[[i]]$value[j * 2 - 1], empirical_lims$value[j * 2 - 1])
+    plot_lims[[i]]$d[j * 2 - 1] = min(plot_lims[[i]]$d[j * 2 - 1], empirical_lims$dist[j * 2 - 1])
+  }
 }
-plot_lims2 = plot_lims |>
-  dplyr::mutate(
-    name = factor(name, levels = levels(plot_lims$name), labels = levels(empirical_lims$name)))
+plot_lims2 = plot_lims
+for (i in seq_along(plot_lims2)) {
+  plot_lims2[[i]] = dplyr::mutate(
+    plot_lims2[[i]],
+    name = factor(name, levels = levels(plot_lims[[i]]$name), labels = levels(empirical_lims$name)))
+}
 
 obs_plot = local({
   moments = readRDS(filename)$moments
@@ -875,9 +880,9 @@ for (i in seq_along(model_properties)) {
         text = element_text(size = 18),
         strip.text = element_text(colour = "black", size = 20),
         strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0")) +
-      geom_blank(data = plot_lims, aes(x = d, y = value))
+      geom_blank(data = plot_lims[[i]], aes(x = d, y = value))
     obs_plot = obs_plot +
-      geom_blank(data = plot_lims2, aes(x = d, y = value))
+      geom_blank(data = plot_lims2[[i]], aes(x = d, y = value))
     patchwork::wrap_plots(
       obs_plot, tmp, ncol = 2, guides = "collect", design = "AAAAAAA#BBBBBBB") +
       patchwork::plot_annotation(tag_levels = "A", tag_suffix = ")")
@@ -894,15 +899,33 @@ obs_plot2 = obs_plot +
   facet_wrap(~name, scales = "free_y", nrow = 2)
 
 plot = local({
+  plot_lims[[1]] = plot_lims[[1]]
+  plot_lims2[[1]] = plot_lims2[[1]]
+  for (i in seq_along(plot_lims)[-1]) {
+    for (j in seq_len(nrow(plot_lims[[1]]) / 2)) {
+      plot_lims[[1]]$value[2 * j] = max(
+        plot_lims[[1]]$value[2 * j],
+        plot_lims[[i]]$value[2 * j])
+      plot_lims[[1]]$value[2 * j - 1] = min(
+        plot_lims[[1]]$value[2 * j - 1],
+        plot_lims[[i]]$value[2 * j - 1])
+      plot_lims2[[1]]$value[2 * j] = max(
+        plot_lims2[[1]]$value[2 * j],
+        plot_lims2[[i]]$value[2 * j])
+      plot_lims2[[1]]$value[2 * j - 1] = min(
+        plot_lims2[[1]]$value[2 * j - 1],
+        plot_lims2[[i]]$value[2 * j - 1])
+    }
+  }
   for (i in seq_along(plots)) {
     plots[[i]] = plots[[i]][[2]] +
       labs(title = paste("Model fit nr.", i)) +
       facet_wrap(~name, scales = "free_y", nrow = 2) +
-      geom_blank(data = plot_lims, aes(x = d, y = value))
+      geom_blank(data = plot_lims[[1]], aes(x = d, y = value))
   }
   obs_plot2 = obs_plot2 +
     labs(title = "Observations") +
-    geom_blank(data = plot_lims2, aes(x = d, y = value))
+    geom_blank(data = plot_lims2[[1]], aes(x = d, y = value))
   patchwork::wrap_plots(c(list(obs_plot2), plots), ncol = 2, guides = "collect")
 })
 
