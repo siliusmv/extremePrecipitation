@@ -359,7 +359,7 @@ plot_tikz(
 # ==============================================================================
 
 my_threshold = 5
-set.seed(1)
+set.seed(123)
 plot_data = local({
   plot_data = list()
   for (i in seq_along(simulations$n)) {

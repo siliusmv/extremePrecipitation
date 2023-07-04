@@ -577,26 +577,11 @@ for (my_index in seq_len(n_s0)) {
     na_index = which(is.na(df$y))
     df = df[-na_index, ]
 
-    #f2 = function(θ, y, d, y0) {
-    #  λ0 = exp(θ[1])
-    #  λ_λ = exp(θ[2])
-    #  κ0 = exp(θ[3])
-    #  λ_κ = exp(θ[4])
-    #  κ_κ = exp(θ[5])
-    #  λ = λ0 * exp(-(y0 - threshold) / λ_λ)
-    #  κ = κ0 * exp(-((y0 - threshold) / λ_κ)^κ_κ)
-    #  a = y0 * exp(-(d / λ)^κ)
-    #  sum((a - y)^2)
-    #}
-    #a_par = optim(
-    #  par = readRDS(filename)$a_pars2$par,
-    #  fn = f2,
-    #  y = df$y,
-    #  d = df$dist,
-    #  y0 = df$y0)
-
     beta_par = readRDS(filename)$beta_par
     #beta_par = list(par = c(-.19, 2.16, -.68))
+    beta_par = list(par = c(.65, 8.5, .5))
+    beta_par$par[-1] = log(beta_par$par[-1])
+    beta_par$par[1] = log(beta_par$par[1]) - log(1 - beta_par$par[1])
 
     spde_priors = list(
       rho = c(60, .95),
@@ -708,7 +693,7 @@ for (my_index in seq_len(n_s0)) {
 }
 
 # ==============================================================================
-# Plot the results
+# Compute conditional moments and other properties of the model fits
 # ==============================================================================
 
 moments = readRDS(filename)$moments
@@ -723,10 +708,10 @@ s0_index = sapply(
   as.numeric()
 
 pb = progress_bar(length(s0_index))
-estimated_moments = list()
+model_properties = list()
 fits = readRDS(filename)
 for (i in seq_along(s0_index)) {
-#for (i in seq_along(fits$inla)) {
+#for (i in 1:2) {
   fit = fits$inla[[i]]
   matern_corr = function(dist, rho, nu = 1.5) {
     kappa = sqrt(8 * nu) / rho
@@ -735,7 +720,7 @@ for (i in seq_along(s0_index)) {
     res
   }
   n_samples = nrow(fit$samples)
-  estimated_moments[[i]] = local({
+  model_properties[[i]] = local({
     d = c(0, unique(moments$dist))
     y0 = unique(moments$y0)
     res = list(
@@ -748,9 +733,7 @@ for (i in seq_along(s0_index)) {
         sqrt(1 - matern_corr(d, exp(fit$samples[j, 2]), .5)^2)
       res$arrays$a[, , j] = fits$get_a_func(fit$samples[j, ])(y0, d)
       res$arrays$alpha[, , j] = res$arrays$a[, , j] / rep(y0, each = length(d))
-      #stop("here we need a separate b_func for the last fit!")
       res$arrays$beta[, , j] = log(fits$get_b_func(fit$samples[j, ])(exp(1), d))
-      #res$arrays$beta[, , j] = log(get_b_func(fit$samples[j, ])(exp(1), d))
       res$arrays$zeta[, , j] = sqrt(
         fits$get_b_func(fit$samples[j, ])(y0, d)^2 * rep(res$mats$sd[, j]^2, length(y0))
         + 1 / fits$get_tau(fit$samples[j, ]))
@@ -800,15 +783,19 @@ pb$terminate()
 
 local({
   tmp = readRDS(filename)
-  tmp$estimated_moments = estimated_moments
+  tmp$model_properties = model_properties
   saveRDS(tmp, filename)
 })
 
-estimated_moments = readRDS(filename)$estimated_moments
+# ==============================================================================
+# Plot the computed properties
+# ==============================================================================
+
+model_properties = readRDS(filename)$model_properties
 
 plot_data = list()
-for (i in seq_along(estimated_moments)) {
-  plot_data[[i]] = estimated_moments[[i]] |>
+for (i in seq_along(model_properties)) {
+  plot_data[[i]] = model_properties[[i]] |>
     dplyr::filter(d <= 70, is.na(y0) | log(y0) > min(log(y0), na.rm = TRUE) + .1) |>
     dplyr::mutate(
       y0 = ifelse(name == "beta", NA, y0),
@@ -841,79 +828,7 @@ plot_lims2 = plot_lims |>
   dplyr::mutate(
     name = factor(name, levels = levels(plot_lims$name), labels = levels(empirical_lims$name)))
 
-plots = list()
-for (i in seq_along(estimated_moments)) {
-   plots[[i]] = ggplot(plot_data[[i]]) +
-     geom_line(aes(x = d, y = mean, group = y0, col = y0)) +
-     geom_ribbon(aes(x = d, ymin = lower, ymax = upper, group = y0, fill = y0), alpha = .35) +
-     scale_color_continuous(na.value = "black") +
-     scale_fill_continuous(na.value = "black") +
-     facet_wrap(~name, scales = "free_y") +
-     labs(x = "$d$", y = "Value", col = "$y_0$", fill = "$y_0$") +
-     theme_light() +
-     theme(
-       text = element_text(size = 18),
-       strip.text = element_text(colour = "black", size = 20),
-       strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0"))
-}
-
-plot_tikz(
-  plots,
-  file = file.path(image_dir(), "intensity_results.pdf"),
-  width = 10,
-  height = 6)
-
 obs_plot = local({
-  moments = readRDS(filename)$moments
-  chi = readRDS(filename)$chi
-  df1 = moments |>
-    tidyr::pivot_longer(c(mean, sd, alpha, beta, sigma)) |>
-    dplyr::select(-log_y0)
-  df2 = chi |>
-    dplyr::rename(value = chi, y0 = threshold) |>
-    dplyr::mutate(name = "chi")
-  rbind(df1, df2) |>
-    dplyr::select(-n) |>
-    dplyr::filter(dist <= 70, y0 > min(y0) + .2) |>
-    dplyr::mutate(name = factor(
-      name,
-      levels = c("mean", "sd", "alpha", "beta", "sigma", "chi"),
-      labels = paste0(
-        "$\\hat \\",
-        c("mu", "zeta", "alpha", "beta", "sigma", "chi"),
-        "(d; y_0",
-        c(")$", ", y_1)$")[c(1, 1, 1, 2, 2, 1)])
-    )) |>
-    ggplot() +
-    geom_line(aes(x = dist, y = value, group = y0, col = y0)) +
-    facet_wrap(~name, scales = "free_y") +
-    labs(x = "$d$", y = "Value", col = "$y_0$") +
-    theme_light() +
-    theme(
-      text = element_text(size = 18),
-      strip.text = element_text(colour = "black", size = 20),
-      strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0"))
-})
-
-plot = local({
-  for (i in seq_along(plots)) {
-    plots[[i]] = plots[[i]] +
-      labs(title = paste("Model fit nr.", i)) +
-      geom_blank(data = plot_lims, aes(x = d, y = value))
-  }
-  obs_plot = obs_plot +
-    labs(title = "Observations") +
-    geom_blank(data = plot_lims2, aes(x = d, y = value))
-  patchwork::wrap_plots(c(list(obs_plot), plots), ncol = 2, guides = "collect")
-})
-
-plot_tikz(
-  plot = plot,
-  file = file.path(image_dir(), "intensity_results2.pdf"),
-  width = 14,
-  height = 14)
-
-obs_plot2 = local({
   moments = readRDS(filename)$moments
   chi = readRDS(filename)$chi
   df1 = moments |>
@@ -945,9 +860,9 @@ obs_plot2 = local({
       strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0"))
 })
 
-plots2 = list()
-for (i in seq_along(estimated_moments)) {
-  plots2[[i]] = local({
+plots = list()
+for (i in seq_along(model_properties)) {
+  plots[[i]] = local({
     tmp = ggplot(plot_data[[i]]) +
       geom_line(aes(x = d, y = mean, group = y0, col = y0)) +
       geom_ribbon(aes(x = d, ymin = lower, ymax = upper, group = y0, fill = y0), alpha = .35) +
@@ -961,16 +876,38 @@ for (i in seq_along(estimated_moments)) {
         strip.text = element_text(colour = "black", size = 20),
         strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0")) +
       geom_blank(data = plot_lims, aes(x = d, y = value))
-    obs_plot2 = obs_plot2 +
+    obs_plot = obs_plot +
       geom_blank(data = plot_lims2, aes(x = d, y = value))
     patchwork::wrap_plots(
-      obs_plot2, tmp, ncol = 2, guides = "collect", design = "AAAAAAA#BBBBBBB") +
+      obs_plot, tmp, ncol = 2, guides = "collect", design = "AAAAAAA#BBBBBBB") +
       patchwork::plot_annotation(tag_levels = "A", tag_suffix = ")")
   })
 }
 
 plot_tikz(
-  plots2,
-  file = file.path(image_dir(), "intensity_results3.pdf"),
+  plots,
+  file = file.path(image_dir(), "intensity_results.pdf"),
   width = 12,
   height = 6)
+
+obs_plot2 = obs_plot +
+  facet_wrap(~name, scales = "free_y", nrow = 2)
+
+plot = local({
+  for (i in seq_along(plots)) {
+    plots[[i]] = plots[[i]][[2]] +
+      labs(title = paste("Model fit nr.", i)) +
+      facet_wrap(~name, scales = "free_y", nrow = 2) +
+      geom_blank(data = plot_lims, aes(x = d, y = value))
+  }
+  obs_plot2 = obs_plot2 +
+    labs(title = "Observations") +
+    geom_blank(data = plot_lims2, aes(x = d, y = value))
+  patchwork::wrap_plots(c(list(obs_plot2), plots), ncol = 2, guides = "collect")
+})
+
+plot_tikz(
+  plot,
+  file = file.path(image_dir(), "intensity_results2.pdf"),
+  width = 14,
+  height = 14)

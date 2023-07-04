@@ -29,39 +29,11 @@ rissa = radar$rissa
 # Do some plotting
 # ==============================================================================
 
-# Plot nonzero proportions in time and space with different zero thresholds
+# Plot nonzero proportions in time with different zero thresholds
 # ------------------------------------------------------------------------------
-zero_thresholds = c(0, .05, .1, .2)
+zero_thresholds = c(0, .01, .1, .2)
 
-plot1 = local({
-  small_proportion = sapply(
-    X = zero_thresholds,
-    FUN = function(x) {
-      apply(radar$data, 2, function(y) mean(y <= x, na.rm = TRUE))
-    })
-  as.data.frame(coords) |>
-    cbind(small_proportion) |>
-    tidyr::pivot_longer(-c(X, Y)) |>
-    dplyr::mutate(name = paste("$\\tau_0 =", zero_thresholds[as.numeric(name)], "$ mm/h")) |>
-    ggplot() +
-    geom_sf(data = rissa) +
-    geom_raster(aes(x = X, y = Y, fill = value)) +
-    facet_wrap(~name, nrow = 1) +
-    scale_fill_viridis_c() +
-    theme_light() +
-    scale_x_continuous(expand = c(0, 0)) +
-    scale_y_continuous(expand = c(0, 0)) +
-    theme(
-      text = element_text(size = 12),
-      strip.text = element_text(colour = "black", size = 15),
-      strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0")) +
-    labs(
-      x = "Easting",
-      y = "Northing",
-      fill = "$P\\left(X(\\bm s, \\cdot) \\leqslant \\tau_0\\right)$"
-    )
-})
-plot2 = local({
+plot = local({
   small_sum = sapply(
     X = zero_thresholds,
     FUN = function(x) {
@@ -105,14 +77,11 @@ plot2 = local({
       col = "Month")
 })
 
-plot1 = latex_friendly_map_plot(plot1)
-plot = patchwork::wrap_plots(plot1, plot2, nrow = 2, heights = c(.5, .5))
-
 plot_tikz(
   plot,
   file = file.path(image_dir(), "small_proportions.pdf"),
   width = 11,
-  height = 6)
+  height = 3)
 
 # Plot statistics of the marginal distributions in time and space
 # ------------------------------------------------------------------------------
