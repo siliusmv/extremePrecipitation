@@ -257,7 +257,7 @@ for (i in seq_along(dists)) {
           apply(simulations[[name]][[j]][index, ], 2, sum)
         })
     }
-    probs = head(seq(0, 1, length.out = 10), -1)
+    probs = head(seq(0, 1, by = .05), -1)[-1]
     df = list()
     for (j in seq_along(simulations$n)) {
       for (l in seq_along(simulations$names)) {
