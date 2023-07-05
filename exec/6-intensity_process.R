@@ -384,52 +384,6 @@ plot_tikz(
   height = 4)
 
 # ==============================================================================
-# Estimate parameters of β
-# ==============================================================================
-
-moments = readRDS(filename)$moments
-
-f = function(par, beta, dist) {
-  beta0 = exp(par[1])
-  lambda = exp(par[2])
-  kappa = exp(par[3])
-  beta_est = beta0 * exp(-(dist / lambda) ^ kappa)
-  diff = beta_est - beta
-  diff = diff[!is.na(diff) & is.finite(diff)]
-  sum(diff^2)
-}
-f = function(par, beta, dist) {
-  beta0 = exp(par[1]) / (1 + exp(par[1]))
-  lambda = exp(par[2])
-  kappa = exp(par[3])
-  beta_est = beta0 * exp(-(dist / lambda) ^ kappa)
-  diff = beta_est - beta
-  diff = diff[!is.na(diff) & is.finite(diff)]
-  sum(diff^2)
-}
-
-beta_par = optim(
-  #par = log(c(.5, 30, .5)),
-  par = c(1, log(30), log(.5)),
-  fn = f,
-  beta = moments$beta,
-  dist = moments$dist)
-
-moments |>
-  dplyr::mutate(
-    beta2 = exp(beta_par$par[1]) * exp(-(dist / exp(beta_par$par[2]))^exp(beta_par$par[3]))) |>
-    #beta2 = exp(beta_par$par[1]) * exp(-dist / exp(beta_par$par[2]))) |>
-  ggplot() +
-  geom_line(aes(x = dist, y = beta, col = y0, group = y0)) +
-  geom_line(aes(x = dist, y = beta2), col = "red")
-
-local({
-  tmp = readRDS(filename)
-  tmp$beta_par = beta_par
-  saveRDS(tmp, filename)
-})
-
-# ==============================================================================
 # Create and save functions describing how we create our model
 # ==============================================================================
 get_tau = function(theta) {
@@ -577,24 +531,22 @@ for (my_index in seq_len(n_s0)) {
     na_index = which(is.na(df$y))
     df = df[-na_index, ]
 
-    beta_par = readRDS(filename)$beta_par
-    #beta_par = list(par = c(-.19, 2.16, -.68))
-    beta_par = list(par = c(.65, 8.5, .5))
-    beta_par$par[-1] = log(beta_par$par[-1])
-    beta_par$par[1] = log(beta_par$par[1]) - log(1 - beta_par$par[1])
+    beta_par = c(.65, 8.5, .5)
+    beta_par[-1] = log(beta_par[-1])
+    beta_par[1] = log(beta_par[1]) - log(1 - beta_par[1])
 
     spde_priors = list(
       rho = c(60, .95),
       sigma = c(4, .05),
-      beta0 = c(beta_par$par[1], 5),
-      lambda = c(beta_par$par[2], 5),
-      kappa = c(beta_par$par[3], 5))
+      beta0 = c(beta_par[1], 5),
+      lambda = c(beta_par[2], 5),
+      kappa = c(beta_par[3], 5))
     b_model = spde_b_model(
       n = data$n,
       y0 = unlist(data$y0),
       spde = multimesh_data$spde,
-      #init = c(log(40), log(1.3), beta_par$par),
-      init = c(log(40), log(1.2), beta_par$par),
+      #init = c(log(40), log(1.3), beta_par),
+      init = c(log(40), log(1.2), beta_par),
       priors = spde_priors,
       dist_to_s0 = multimesh_data$dist)
 
