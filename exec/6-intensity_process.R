@@ -822,7 +822,7 @@ for (i in seq_along(model_properties)) {
   plots[[i]] = local({
     tmp = ggplot(plot_data[[i]]) +
       geom_line(aes(x = d, y = mean, group = y0, col = y0)) +
-      geom_ribbon(aes(x = d, ymin = lower, ymax = upper, group = y0, fill = y0), alpha = .35) +
+      #geom_ribbon(aes(x = d, ymin = lower, ymax = upper, group = y0, fill = y0), alpha = .35) +
       scale_color_continuous(na.value = "black") +
       scale_fill_continuous(na.value = "black") +
       facet_wrap(~name, scales = "free_y", nrow = 3) +
