@@ -740,8 +740,10 @@ plot3 = plot_data |>
   theme_light() +
   theme(
     panel.grid = element_blank(),
-    text = element_text(size = 12),
-    strip.text = element_text(colour = "black", size = 11),
+    text = element_text(size = 18),
+    axis.text = element_text(size = 10),
+    legend.title = element_text(size = 12),
+    strip.text = element_text(colour = "black", size = 12),
     strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0")) +
   labs(x = "Easting", y = "Northing", fill = "mm/h")
 plot3 = latex_friendly_map_plot(plot3)
@@ -755,7 +757,7 @@ plot = patchwork::wrap_plots(
 plot_tikz(
   plot,
   file = file.path(image_dir(), "zero_simulation_properties.pdf"),
-  width = 13,
+  width = 14,
   height = 4)
 
 # ==============================================================================
