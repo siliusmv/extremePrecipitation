@@ -101,20 +101,25 @@ plot = ggplot(df) +
       y = st_get_dimension_values(tmp, "y")[10],
       z = legend_cols$height),
     aes(x = x, y = y, col = z)) +
-  geom_raster(aes(x = x, y = y), fill = rgb(red = df$red, green = df$green, blue = df$blue)) +
+  geom_raster(
+    aes(x = x, y = y),
+    fill = rgb(red = df$red, green = df$green, blue = df$blue)) +
   geom_sf(data = boundary) +
   theme_light() +
   theme(
     text = element_text(size = 15),
-    panel.grid = element_line(colour = "black", linewidth = .001, color = "gray", linetype = "dashed"),
+    panel.grid = element_line(colour = "black", linewidth = .1),
     panel.ontop = TRUE,
     panel.background = element_blank()) +
   geom_sf(data = rissa, shape = 17, size = 1.5) +
   geom_sf(data = s0, size = 1.5) +
   geom_sf_text(data = dplyr::mutate(st_as_sf(s0), label = 1:5), aes(label = label),
-               nudge_y = 2000, size = 4) +
+               #nudge_y = 2000, size = 5) +
+               nudge_y = c(-3, 0, 3, 0, 3) * 1000,
+               nudge_x = c(0, -3, 0, -3, 0) * 1000,
+               size = 5) +
   geom_sf_text(data = dplyr::mutate(st_as_sf(rissa), name = "Rissa"), aes(label = name),
-               nudge_y = 3000, size = 6) +
+               nudge_y = 3000, size = 5) +
   scale_color_gradientn(colours = legend_cols$col) +
   scale_x_continuous(expand = c(0, 0)) +
   scale_y_continuous(expand = c(0, 0)) +
