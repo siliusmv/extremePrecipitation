@@ -2,6 +2,9 @@
 raw_data/*
 raw_data/
 
+renv/
+renv/*
+
 .git/*
 .git/
 man/*

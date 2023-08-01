@@ -1,14 +1,18 @@
-devtools::load_all()
+library(extremePrecipitation)
 library(sf)
 library(ggplot2)
 library(dplyr)
 library(INLA)
 library(inlabru)
 
+# Activate pardiso if available
 INLA::inla.setOption(pardiso.license = "~/.R/licences/pardiso.lic")
 INLA::inla.pardiso.check()
 
+# Filename for the gamma_model results
 gamma_filename = file.path(results_dir(), "gamma_model.rds")
+
+# Choose a filename for the GP_model results
 filename = file.path(results_dir(), "gp_model.rds")
 if (!file.exists(filename)) saveRDS(list(), filename)
 

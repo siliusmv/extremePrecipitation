@@ -11,7 +11,6 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.2.3
 Imports:
-    devtools,
     sf,
     dplyr,
     ggplot2,
@@ -21,9 +20,17 @@ Imports:
     tidyr,
     stars,
     inlabru,
+    rnaturalearth,
+    rnaturalearthdata,
+    here,
+    progress,
+    purrr,
+    raster,
+    renv,
+    rvest,
     sn,
     splancs,
-    rnaturalearthdata
+    tikzDevice
 
 
 

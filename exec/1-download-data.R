@@ -1,5 +1,5 @@
-devtools::load_all()
 library(stars)
+library(extremePrecipitation)
 
 # ==============================================================================
 # Download radar data.

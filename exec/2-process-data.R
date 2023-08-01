@@ -1,9 +1,10 @@
-devtools::load_all()
+library(extremePrecipitation)
 library(dplyr)
 library(sf)
 library(lubridate)
 library(raster)
 library(ncdf4)
+library(stars)
 
 # Load radar data
 radar_file = file.path(downloads_dir(), "radar.nc")

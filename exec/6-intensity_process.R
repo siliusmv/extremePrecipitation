@@ -1,4 +1,4 @@
-devtools::load_all()
+library(extremePrecipitation)
 library(sf)
 library(ggplot2)
 library(dplyr)

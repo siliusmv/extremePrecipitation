@@ -1,8 +1,8 @@
+library(extremePrecipitation)
 library(ggplot2)
 library(dplyr)
 library(rayshader)
 library(stars)
-devtools::load_all()
 
 # ==============================================================================
 # Load the data

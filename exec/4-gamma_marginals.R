@@ -1,17 +1,15 @@
-devtools::load_all()
+library(extremePrecipitation)
 library(sf)
 library(ggplot2)
 library(dplyr)
 library(INLA)
 library(inlabru)
 
+# Activate pardiso if available
 INLA::inla.setOption(pardiso.license = "~/.R/licences/pardiso.lic")
 INLA::inla.pardiso.check()
 
-RhpcBLASctl::blas_set_num_threads(1)
-RhpcBLASctl::omp_set_num_threads(1)
-
-zero_threshold = .1
+# Choose a filename for the gamma_model results
 filename = file.path(results_dir(), "gamma_model.rds")
 if (!file.exists(filename)) saveRDS(list(), filename)
 
