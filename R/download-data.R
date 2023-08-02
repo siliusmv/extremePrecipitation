@@ -46,6 +46,8 @@ get_radar_url = function(date) {
   get_full_url_of_metno_file(catalog_url, files)
 }
 
+#' Given the url to a thredds.met.no webpage,
+#' locate all files in the webpage that satisfy certain requirements
 locate_nc_files_in_metno_page = function(url) {
   page = xml2::read_html(url)
   links = rvest::html_nodes(page, "a")

@@ -20,6 +20,7 @@ if (!file.exists(filename)) saveRDS(list(), filename)
 # Prepare the data for modelling with the GP
 # ==============================================================================
 
+# Load all necessary data
 gamma_res = readRDS(gamma_filename)
 radar = readRDS(file.path(downloads_dir(), "radar.rds"))
 coords = st_coordinates(radar$coords)
@@ -28,6 +29,7 @@ rissa = radar$rissa
 n_time = nrow(radar$data)
 n_loc = nrow(coords)
 
+# Create a data.frame with the necessary data for modelling and exploratory analysis
 df = data.frame(
   y = as.numeric(radar$data),
   day = rep(radar$day, n_loc),
@@ -38,7 +40,7 @@ df = data.frame(
   y_coord = rep(as.numeric(coords[, 2]), n_time)) |>
   dplyr::mutate(
     y = y - gamma_res$zero_threshold # Shift the data so their distributions align with gamma_res
-    ) |>
+  ) |>
   dplyr::filter(y > 0) |> # Speed things up by removing to small entries
   dplyr::left_join(dplyr::select(gamma_res$u, day, year, mean), by = c("day", "year")) |>
   dplyr::rename(u = mean) |>
@@ -49,6 +51,7 @@ df = data.frame(
 # Do some exploratory analysis
 # ==============================================================================
 
+# Plot temporal statistics of the threshold exceedances
 plots = local({
   plot_data = list()
   for (y in unique(df$year)) {
@@ -119,6 +122,8 @@ if (length(bad_index) > 0) {
   n_time = nrow(radar$data)
 }
 
+# Create a data.frame with the necessary data for modelling and exploratory analysis,
+# now that we have removed the Rissa radar data
 df = data.frame(
   y = as.numeric(radar$data),
   day = rep(radar$day, n_loc),
@@ -138,6 +143,7 @@ df = dplyr::filter(df, y > 0) |> # Speed things up by removing to small entries
 # Start the modelling
 # ==============================================================================
 
+# Create a model component for inlabru of the temporal Gaussian smoothing spline
 day_model = local({
   day_mesh = inla.mesh.1d(
     loc = seq(min(df$day), max(df$day), by = 14),
@@ -145,12 +151,16 @@ day_model = local({
   inla.spde2.pcmatern(day_mesh, prior.range = c(28, .95), prior.sigma = c(3, .05))
 })
 
+# Define the component formula for inlabru
 components = y ~
   -1 +
   day(day, model = day_model, group = year, control.group = list(model = "iid"))
 
-prob = .5
+# The probability p such that the logarithm of the linear predictor equals the
+# p-quantile in the marginal distribution of the threshold exceedances
+predictor_prob = .5
 
+# Perform inference with inlabru
 fit = bru(
   components,
   like(
@@ -158,16 +168,14 @@ fit = bru(
     family = "gp",
     data = df,
     control.family = list(
-      control.link = list(quantile = prob),
+      control.link = list(quantile = predictor_prob),
       hyper = list(theta = list(prior = "pc.gevtail", param = c(7, 0, .5))))),
   options = list(
     verbose = TRUE,
     num.threads = 4,
     inla.mode = "experimental"))
 
-summary(fit)
-
-# Save the necessary results of the model fit
+# Save the necessary information from the model fit
 res = local({
   set.seed(1)
   all_days = sort(unique(radar$day))
@@ -182,7 +190,7 @@ res = local({
     n.samples = 500,
     seed = 1)
   list(
-    prob = prob,
+    prob = predictor_prob,
     s = predictions,
     u = gamma_res$u,
     fixed = fit$summary.fixed,
@@ -199,13 +207,16 @@ saveRDS(res, filename)
 # Evaluate the results
 # ==============================================================================
 
+# Load the results
 res = readRDS(filename)
 
+# Create a data.frame used for plotting the results
 df = dplyr::left_join(df, res$s, by = c("day", "year")) |>
   dplyr::rename(s = mean)
-df$pit = pgp(df$y, df$s, res$xi, alpha = res$prob)
+# Standardise the data so we can create QQ-plots
 df$y_standardised = df$y / df$s
 
+# Create QQ plots
 probs = 1 - 2^-seq(0, 9, by = .2)
 qq_data = local({
   df1 = df |>

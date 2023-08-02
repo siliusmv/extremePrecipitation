@@ -7,15 +7,6 @@ plot_tikz = function(plot = NULL, expression = NULL, file = "Rplots.pdf", ...) {
     stop("Either `plot` or `expression` must be non-NULL")
   }
 
-  # Ensure that you are on an operating system that you have tested
-  operating_system = Sys.info()[["sysname"]]
-  if (operating_system == "Windows") {
-    proceed = readline(paste("This function was written on a Mac,",
-                             "I have no idea if it will work on Windows.",
-                             "Proceed? (y/n) "))
-    if (proceed != "y") return()
-  }
-
   # Create a temporary file for the tikz-output
   tmp = tempfile(tmpdir = getwd())
   # Clean up after yourself on early interrupt
@@ -68,16 +59,7 @@ plot_tikz = function(plot = NULL, expression = NULL, file = "Rplots.pdf", ...) {
   file.remove(files_to_clean)
 }
 
-#' @export
-latex_friendly_map_plot = function(x) {
-  info = ggplot2::ggplot_build(x)$layout$panel_params[[1]]$graticule
-  east_ticks = info$degree[info$type == "E" & info$y_start == 0]
-  north_ticks = info$degree[info$type == "N" & info$x_start == 0]
-  x +
-    ggplot2::scale_x_continuous(breaks = east_ticks, labels = paste0(east_ticks, "$^\\circ$E"), expand = c(0, 0)) +
-    ggplot2::scale_y_continuous(breaks = north_ticks, labels = paste0(north_ticks, "$^\\circ$N"), expand = c(0, 0))
-}
-
+#' Add a map of Norway ontop of a ggplot object
 #' @export
 add_norway_map = function(crs = NULL, bbox = NULL, ...) {
   map = rnaturalearth::ne_countries(scale = 50, country = "Norway", returnclass = "sf")

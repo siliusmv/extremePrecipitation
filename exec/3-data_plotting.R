@@ -11,35 +11,25 @@ heights = stars::read_stars(file.path(downloads_dir(), "dem.tif"))
 radar_filename = file.path(downloads_dir(), "radar.rds")
 radar = readRDS(radar_filename)
 
+# Load the geojson file containing the Stordalselva catchment boundary
 poly = st_read(file.path(downloads_dir(), "stordalselva.geojson"))
 poly = st_transform(poly, st_crs(heights))
 boundary = st_boundary(poly)
-
-bbox = radar$coords |>
-  st_transform(st_crs(heights)) |>
-  st_bbox()
-
-s0 = list(
-  st_point(c(277000, 7114000)),
-  st_point(c(294000, 7113000)),
-  st_point(c(268000, 7101000)),
-  st_point(c(285000, 7099000)),
-  st_point(c(255000, 7092000))) |>
-  st_as_sfc()
-st_crs(s0) = st_crs(heights)
-
-radar$s0 = s0 |>
-  st_transform(st_crs(radar$coords))
-
-saveRDS(radar, radar_filename)
 
 # ==============================================================================
 # Plot a map of Norway with a box containing the spatial domain
 # ==============================================================================
 
+# Define a bounding box for the entire spatial domain
+bbox = radar$coords |>
+  st_transform(st_crs(heights)) |>
+  st_bbox()
+
+# Transform the bounding box to sfc format and correct coordinates
 poly_bbox = st_as_sfc(bbox) |>
   st_transform(4326)
 
+# Plot of Norway with the bounding box added
 plot = ggplot() +
   geom_sf(data = poly_bbox, fill = NA, linewidth = 1.2) +
   add_norway_map(
@@ -57,13 +47,16 @@ dev.off()
 # Plot a fancy height map
 # ==============================================================================
 
+# Create necessary temporary objects for the plotting
 tmp = st_crop(heights, bbox) |>
   st_as_stars()
 tmp2 = tmp[[1]]
 
+# Transform the Rissa radar to the necessary coordinate projection
 rissa = radar$rissa |>
   st_transform(st_crs(tmp))
 
+# A ton of details for creating a nice plot
 height_plot = tmp2 |>
   height_shade() |>
   add_overlay(sphere_shade(tmp2, texture = "desert", zscale = 10), alphalayer = .5) |>
@@ -72,6 +65,7 @@ height_plot = tmp2 |>
   add_water(detect_water(tmp2, min_area = 10), color = "imhof1")
 tryCatch(dev.off(), error = function(e) NULL)
 
+# A ton of details for creating a nice plot
 legend_cols = local({
   max_height = max(tmp2)
   heights = seq(0, max_height, length.out = 500) |>
@@ -87,6 +81,7 @@ legend_cols = local({
   data.frame(height = heights[, 1], col = cols)
 })
 
+# A ton of details for creating a nice plot
 df = data.frame(
   red = as.numeric(height_plot[, , 1]),
   green = as.numeric(height_plot[, , 2]),
@@ -94,6 +89,7 @@ df = data.frame(
   y = rep(st_get_dimension_values(tmp, "y"), dim(tmp)[1]),
   x = rep(st_get_dimension_values(tmp, "x"), each = dim(tmp)[2]))
 
+# A ton of details for creating a nice plot
 plot = ggplot(df) +
   geom_point(
     data = data.frame(

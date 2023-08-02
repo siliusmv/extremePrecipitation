@@ -13,7 +13,7 @@ data = raster::brick(radar_file)
 # Coordinates of the data
 coords = raster::rasterToPoints(data[[1]], spatial = TRUE) |>
   sf::st_as_sf() |>
-  {\(x) cbind(x, sf::st_coordinates(x))}() |>
+  (\(x) cbind(x, sf::st_coordinates(x)))() |>
   dplyr::select(geometry)
 
 # Transform from [m] to [km] to remove annoying zeros
@@ -40,6 +40,7 @@ times = colnames(time_series) |>
 time_diff = tail(times, -1) - head(times, -1)
 min(time_diff)
 
+# This is the location of the Rissa radar
 rissa = st_point(c(10.203845, 63.690527)) |>
   st_sfc(crs = 4326) |>
   st_transform(st_crs(coords))
@@ -61,17 +62,31 @@ loc_index = which(
 data = data[, loc_index]
 coords = coords[loc_index, ]
 
+# Define the list of our five chosen conditioning sites
+s0 = list(
+  st_point(c(277000, 7114000)),
+  st_point(c(294000, 7113000)),
+  st_point(c(268000, 7101000)),
+  st_point(c(285000, 7099000)),
+  st_point(c(255000, 7092000))) |>
+  st_as_sfc()
+st_crs(s0) = st_crs(height_raster)
+
+# Transform the conditioning sites to be on the same
+# projection as the radar data
+s0 = st_transform(s0, st_crs(coords))
+
 # Save the processed data
 radar_data = list(
   data = data,
   coords = coords,
   times = times,
-  rissa = rissa)
-
-radar_data$year = lubridate::year(radar_data$times)
-radar_data$month = lubridate::month(radar_data$times)
-radar_data$week = lubridate::week(radar_data$times)
-radar_data$day = lubridate::yday(radar_data$times) -
-  ifelse(lubridate::leap_year(radar_data$times), 1, 0)
+  rissa = rissa,
+  s0 = s0,
+  year = lubridate::year(times),
+  month = lubridate::month(times),
+  week = lubridate::week(times),
+  day = lubridate::yday(times) - ifelse(lubridate::leap_year(times), 1, 0)
+)
 
 saveRDS(radar_data, file = file.path(downloads_dir(), "radar.rds"))

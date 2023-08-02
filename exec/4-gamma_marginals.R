@@ -81,8 +81,10 @@ plot_tikz(
   width = 11,
   height = 3)
 
-# Plot statistics of the marginal distributions in time and space
+# Plot statistics of the marginal nonzero precipitation distributions
 # ------------------------------------------------------------------------------
+zero_threshold = .1 # Our chosen zero threshold
+
 info = local({
   res = list()
   for (y in unique(radar$year)) {
@@ -146,7 +148,7 @@ plot_tikz(
   height = 2.5)
 
 # ==============================================================================
-# Remove neighbours to Rissa
+# Remove neighbours to the Rissa radar
 # ==============================================================================
 
 # Remove the Rissa radar and its closest neighbours
@@ -167,20 +169,25 @@ if (length(bad_index) > 0) {
 # Start modelling the data
 # ==============================================================================
 
+zero_threshold = .1 # Our chosen zero threshold
+
+# Get the indices of coordinates from a 2x2 subgrid of the data
 delta_obs = 2
 obs_index = get_s0_index(coords, delta_obs)
 
+# Create a data.frame with all positive precipitation observations on
+# the 2x2 subgrid
 df = data.frame(
   y = as.numeric(radar$data[, obs_index]),
   time = rep(radar$times, length(obs_index)),
   day = rep(radar$day, length(obs_index)),
-  year = rep(radar$year, length(obs_index)),
-  sqrt_height = rep(sqrt(heights[obs_index]), n_time))
+  year = rep(radar$year, length(obs_index)))
 df$y[which(df$y <= zero_threshold)] = NA_real_
 na_index = which(is.na(df$y))
 df = df[-na_index, ]
 df$y = df$y - zero_threshold
 
+# Create a model component for inlabru of the temporal Gaussian smoothing spline
 day_model = local({
   day_mesh = inla.mesh.1d(
     loc = seq(min(df$day), max(df$day), by = 12),
@@ -188,12 +195,15 @@ day_model = local({
   inla.spde2.pcmatern(day_mesh, prior.range = c(28, .95), prior.sigma = c(3, .05))
 })
 
+# Define the component formula for inlabru
 components = y ~
   -1 +
   day(day, model = day_model, group = year, control.group = list(model = "iid"))
 
-prob = .95
+# The probability p_u such that the threshold u is the p_u-quantile
+u_prob = .95
 
+# Perform inference with inlabru
 fit = bru(
   components,
   like(
@@ -201,7 +211,7 @@ fit = bru(
     family = "gamma",
     data = df,
     control.family = list(
-      control.link = list(model = "quantile", quantile = prob),
+      control.link = list(model = "quantile", quantile = u_prob),
       hyper = list(prec = list(prior = "loggamma", param = c(1, .5))))),
   options = list(
     control.inla = list(int.strategy = "eb"),
@@ -210,13 +220,7 @@ fit = bru(
     bru_verbose = TRUE,
     inla.mode = "experimental"))
 
-#cpu1 = fit$cpu.used
-
-#fit = bru_rerun(fit)
-
-summary(fit)
-
-# Save the necessary results of the model fit
+# Save the necessary information from the model fit
 res = local({
   set.seed(1)
   all_days = sort(unique(radar$day))
@@ -231,16 +235,18 @@ res = local({
     n.samples = 500L,
     seed = 1)
   list(
-    prob = prob,
+    prob = u_prob,
     u = predictions,
     fixed = fit$summary.fixed,
     hyperpar = fit$summary.hyperpar,
     a = fit$summary.hyperpar[1, 1],
-    b = dplyr::mutate(pred_df, b = qgamma(prob, fit$summary.hyperpar[1, 1], 1) / predictions$mean),
+    b = dplyr::mutate(
+      pred_df,
+      b = qgamma(u_prob, fit$summary.hyperpar[1, 1], 1) / predictions$mean
+    ),
     zero_threshold = zero_threshold,
     delta_obs = delta_obs,
     coords = coords[obs_index, ],
-    #cpu = list(first = cpu1, second = fit$cpu.used),
     cpu = fit$cpu,
     mlik = fit$mlik)
 })
@@ -250,22 +256,22 @@ saveRDS(res, filename)
 # ==============================================================================
 # Plot the results
 # ==============================================================================
+
+# Load the results
 res = readRDS(filename)
 
-all_data = data.frame(
-  y = as.numeric(radar$data),
-  sqrt_height = rep(sqrt(heights), n_time))
+# Create a data.frame used for plotting the results
+all_data = data.frame(y = as.numeric(radar$data))
 all_data$y[which(all_data$y <= zero_threshold)] = NA_real_
 all_data$day = rep(radar$day, n_loc)
 all_data$year = rep(radar$year, n_loc)
 all_data$month = rep(radar$month, n_loc)
 na_index = which(is.na(all_data$y))
 all_data = all_data[-na_index, ]
-all_data$intercept = 1
 all_data$y = all_data$y - zero_threshold
 all_data = dplyr::left_join(all_data, res$u, by = c("day", "year"))
+# Estimate the rate parameters of the fitted gamma distributions
 all_data$b = qgamma(res$prob, res$a, 1) / all_data$mean
-all_data$pit = pgamma(all_data$y, shape = res$a, rate = all_data$b)
 # Standardise the data so we can create QQ-plots
 all_data$y_standardised = all_data$y * all_data$b
 

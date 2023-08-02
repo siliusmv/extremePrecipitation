@@ -65,15 +65,17 @@ progress_bar = function(n) {
   res
 }
 
+#' Necessary for the dist_euclid() function
 dist_euclid_vec_mat = function(x, y) {
   stopifnot(length(x) == ncol(y))
   res = rep(0, nrow(y))
-  for (i in 1:ncol(y)) {
+  for (i in seq_len(ncol(y))) {
     res = res + (y[, i] - x[i])^2
   }
   sqrt(res)
 }
 
+#' Necessary for the dist_euclid() function
 dist_euclid_mat_mat = function(x, y) {
   apply(x, 1, dist_euclid_vec_mat, y = y)
 }
