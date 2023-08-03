@@ -6,21 +6,21 @@ library(INLA)
 library(inlabru)
 library(patchwork)
 library(lubridate)
-library(RhpcBLASctl)
 
+# Activate pardiso if available
 INLA::inla.setOption(pardiso.license = "~/.R/licences/pardiso.lic")
 INLA::inla.pardiso.check()
 
-RhpcBLASctl::blas_set_num_threads(1)
-RhpcBLASctl::omp_set_num_threads(1)
-
+# Threshold for the spatial conditional extremes model
 threshold = qlaplace(.9)
 
+# Filenames for the marginal model fits
 gp_filename = file.path(results_dir(), "gp_model.rds")
 gamma_filename = file.path(results_dir(), "gamma_model.rds")
 gp_res = readRDS(gp_filename)
 gamma_res = readRDS(gamma_filename)
 
+# Choose a filename for the intensity model results
 filename = file.path(results_dir(), "intensity_process.rds")
 if (!file.exists(filename)) saveRDS(list(), filename)
 
@@ -61,6 +61,7 @@ radar$data[radar$data <= zero_threshold] = NA
 # Shift the data to correctly align with the fitted marginals
 radar$data = radar$data - zero_threshold
 
+# Perform the actual transformation
 pb = progress_bar(n_time)
 for (i in seq_len(nrow(gamma_res$b))) {
   index = which(radar$day == gamma_res$u$day[i] & radar$year == gamma_res$u$year[i])
@@ -79,41 +80,41 @@ for (i in seq_len(nrow(gamma_res$b))) {
 }
 pb$terminate()
 
-if (FALSE) {
-  hist(as.numeric(radar$data), breaks = seq(-20, 20, by = .1))
-  summary(as.numeric(radar$data))
-  # This looks almost perfect. And we don't really care that much
-  # about the bump all the way to the left...
-}
+# Plot the transformed data to see that it looks like it should
+hist(as.numeric(radar$data), breaks = seq(-20, 20, by = .1))
+summary(as.numeric(radar$data))
+# This looks almost perfect. And we don't really care that much
+# about the bump all the way to the left...
 
 # ==============================================================================
 # Examine empirical conditional moments in the data
 # ==============================================================================
 
-delta_s0 = 1
-s0_index = get_s0_index(coords, delta_s0)
-
+# Extract data from all time points where the threshold is exceeded at any
+# location in the domain of interest
 data = extract_extreme_fields(
   data = radar$data,
   coords = coords,
-  s0_index = s0_index,
+  s0_index = seq_len(nrow(coords)),
   threshold = threshold,
   n_cores = 1,
   n = 1,
   r = Inf)
 
-summary(data$n)
-sum(data$n)
-
+# Radii for sliding windows used to estimate empirical moments and
+# other properties of the data
 dist_radius = .5
 log_y0_radius = .025
 
+# Centers for the sliding windows
 log_y0_centers = seq(
   from = ceiling(log(threshold) / (log_y0_radius * 2)) * (log_y0_radius * 2),
   to = 2.2,
   by = log_y0_radius * 2)
 dist_centers = seq(1, 70, by = dist_radius * 2)
 
+# Compute empirical moments and extremal correlation coefficients using
+# sliding window estimators
 moments = empirical_moments(
   data = data,
   dist_centers = dist_centers,
@@ -126,9 +127,11 @@ chi = empirical_chi(
   dist_centers = dist_centers,
   dist_radius = dist_radius)
 
+# data is huuuge. Remove it to get more free space in the RAM
 rm(data)
 gc()
 
+# Compute estimators for alpha, beta and sigma
 moments$alpha = moments$mean / moments$y0
 moments = moments |>
   dplyr::group_by(dist) |>
@@ -140,6 +143,7 @@ attr(moments, "dist_radius") = dist_radius
 attr(moments, "log_y0_radius") = log_y0_radius
 attr(chi, "dist_radius") = dist_radius
 
+# Save the results
 local({
   tmp = readRDS(filename)
   tmp$threshold = threshold
@@ -148,6 +152,7 @@ local({
   saveRDS(tmp, filename)
 })
 
+# Plot the empirical estimators
 plot = local({
   moments = readRDS(filename)$moments
   chi = readRDS(filename)$chi
@@ -191,6 +196,7 @@ plot_tikz(
   width = 10,
   height = 6)
 
+# Save some information from the plot
 local({
   tmp = readRDS(filename)
   tmp$empirical_lims = plot$layers[[2]]$data
@@ -198,12 +204,15 @@ local({
 })
 
 # ==============================================================================
-# Minimise MSE to estimate parameters of α for each value of y0
+# Estimate parameters of α by minimising MSE for different values of y0
 # ==============================================================================
 
+# Get the indices of coordinates from a 4x4 subgrid of the data
 delta_s0 = 4
 s0_index = get_s0_index(coords, delta_s0)
 
+# Extract all data where a threshold exceedance is observed at one of the
+# locations in the 4x4 subgrid
 data = extract_extreme_fields(
   data = radar$data,
   coords = coords,
@@ -212,21 +221,25 @@ data = extract_extreme_fields(
   n_cores = 1,
   n = 2,
   r = Inf)
-summary(data$n)
-sum(data$n)
 
+# Function for computing MSE
 f = function(θ, y, d, y0) {
   λ = exp(θ[1])
   κ = exp(θ[2])
   a = y0 * exp(-(d / λ)^κ)
   sum((a - y)^2)
 }
-a_pars = list()
+
+# Variables deciding how many values of y0 will be used for estimating parameters of α,
+# and how much of the data that should be used
 max_y0 = 11
 max_dist = 90
 y0_rounding = .2
 y0_steps = seq(round(threshold / y0_rounding) * y0_rounding, max_y0, by = y0_rounding)
+
+# Minimise MSE for all y0_steps
 pb = progress_bar(length(data$n))
+a_pars = list()
 df = lapply(
   X = seq_along(data$n),
   FUN = function(i) {
@@ -260,12 +273,14 @@ for (i in seq_along(y0_steps)) {
 }
 pb$terminate()
 
+# Save the results
 local({
   tmp = readRDS(filename)
   tmp$a_pars = a_pars
   saveRDS(tmp, filename)
 })
 
+# Make more space in the RAM
 rm(df)
 gc()
 
@@ -273,6 +288,8 @@ gc()
 # Estimate MSE-parameters for α with the λ = λ0 - λ1 y0, κ = κ0 - κ1 y0 model
 # ==============================================================================
 
+# Function for computing MSE with the model where the λ and κ parameters of
+# α change as functions of y_0
 f2 = function(θ, y, d, y0) {
   λ0 = exp(θ[1])
   λ_λ = exp(θ[2])
@@ -284,6 +301,8 @@ f2 = function(θ, y, d, y0) {
   a = y0 * exp(-(d / λ)^κ)
   sum((a - y)^2)
 }
+
+# Prepare the data used for the optimisation
 df = lapply(
   X = seq_along(data$n),
   FUN = function(i) {
@@ -296,6 +315,8 @@ df = lapply(
       dplyr::filter(!is.na(y))
   }) |>
   dplyr::bind_rows()
+
+# Find the MSE minimisers
 a_pars2 = optim(
   par = log(c(45, 4, .8, 5, 2)),
   fn = f2,
@@ -304,22 +325,23 @@ a_pars2 = optim(
   control = list(trace = 6),
   y0 = df$y0)
 
+# Make more space in the RAM
 rm(df)
 gc()
 
+# Save the results
 local({
   tmp = readRDS(filename)
   tmp$a_pars2 = a_pars2
   saveRDS(tmp, filename)
 })
 
-tmp = readRDS(filename)
-moments = tmp$moments
-a_pars2 = tmp$a_pars2
-a_pars = tmp$a_pars
-rm(tmp)
-
+# Plot the results
 plot = local({
+  tmp = readRDS(filename)
+  moments = tmp$moments
+  a_pars2 = tmp$a_pars2
+  a_pars = tmp$a_pars
   max_lambda = 50
   tmp = lapply(a_pars, \(x) exp(x$par)) |>
     do.call(what = rbind) |>
@@ -331,7 +353,9 @@ plot = local({
   tmp2 = data.frame(y0 = sapply(a_pars, `[[`, "y0")) |>
     dplyr::mutate(
       lambda = exp(a_pars2$par[1]) * exp(-(y0 - threshold) / exp(a_pars2$par[2])),
-      kappa = exp(a_pars2$par[3]) * exp(-((y0 - threshold) / exp(a_pars2$par[4]))^exp(a_pars2$par[5]))) |>
+      kappa = exp(a_pars2$par[3]) *
+        exp(-((y0 - threshold) / exp(a_pars2$par[4])) ^ exp(a_pars2$par[5]))
+    ) |>
     tidyr::pivot_longer(-y0) |>
     dplyr::filter(y0 > threshold)
   tmp$name = factor(
@@ -354,7 +378,8 @@ plot = local({
     dplyr::filter(y0 > threshold) |>
     dplyr::mutate(
       lambda = exp(a_pars2$par[1]) * exp(-(y0 - threshold) / exp(a_pars2$par[2])),
-      kappa = exp(a_pars2$par[3]) * exp(-((y0 - threshold) / exp(a_pars2$par[4]))^exp(a_pars2$par[5])),
+      kappa = exp(a_pars2$par[3]) *
+        exp(-((y0 - threshold) / exp(a_pars2$par[4])) ^ exp(a_pars2$par[5])),
       alpha = exp(-(dist / lambda)^kappa),
       a = alpha * y0) |>
     tidyr::pivot_longer(c(a, alpha)) |>
@@ -384,7 +409,8 @@ plot_tikz(
   height = 4)
 
 # ==============================================================================
-# Create and save functions describing how we create our model
+# Create and save functions that describe our chosen model for
+# the spatial conditional precipitation extremes
 # ==============================================================================
 get_tau = function(theta) {
   exp(theta[1])
@@ -432,7 +458,7 @@ get_b_func = function(theta) {
   }
 }
 
-
+# Save the model details
 local({
   tmp = readRDS(filename)
   tmp$get_b_func = get_b_func
@@ -445,6 +471,9 @@ local({
 # ==============================================================================
 # Prepare data for inference with R-INLA
 # ==============================================================================
+
+# Compute the indices for the rows of `coords` that represent the five chosen
+# conditioning sites we will use for inference
 s0 = radar$s0 |>
   st_coordinates()
 s0_index = sapply(
@@ -454,6 +483,8 @@ s0_index = sapply(
   }) |>
   as.numeric()
 
+# Extract data from all time points where a threshold exceedance is observed
+# at one of the five conditioning sites
 data = extract_extreme_fields(
   data = radar$data,
   coords = coords,
@@ -466,7 +497,7 @@ data = extract_extreme_fields(
 # Create a triangulated mesh for every of our chosen conditioning sites.
 # The function INLA::inla.mesh.2d() creates triangulated meshes, but it will
 # fail to create a mesh and run indefinitely for certain combinations of input arguments.
-# When creating many different meshes, it is really hard to ensure that INLA::inla.mesh.2d()
+# When creating many different meshes, it can be really hard to ensure that INLA::inla.mesh.2d()
 # will work at a first try for all of them. Therefore, we need to create the meshes
 # using a while loop that slightly changes the input arguments if the mesh creation fails
 multimesh_data = parallel::mclapply(
@@ -511,12 +542,14 @@ multimesh_data = purrr::transpose(multimesh_data)
 # Perform full inference using INLA
 # ==============================================================================
 
+# Perform inference in a loop, once for each of the five chosen conditioning sites
 start_total_time = proc.time()
 n_s0 = length(data$n)
 for (my_index in seq_len(n_s0)) {
   local({
     start_iter_time = proc.time()
 
+    # Extract the data that is relevant for conditioning site nr. `my_index`
     data = lapply(data, `[`, my_index)
     multimesh_data = lapply(multimesh_data, `[`, my_index)
     df = lapply(
@@ -531,28 +564,28 @@ for (my_index in seq_len(n_s0)) {
     na_index = which(is.na(df$y))
     df = df[-na_index, ]
 
+    # Define the INLA cgeneric component for describing b(·) Z(·)
     beta_par = c(.65, 8.5, .5)
     beta_par[-1] = log(beta_par[-1])
     beta_par[1] = log(beta_par[1]) - log(1 - beta_par[1])
-
+    # Priors for the model
     spde_priors = list(
       rho = c(60, .95),
       sigma = c(4, .05),
       beta0 = c(beta_par[1], 5),
       lambda = c(beta_par[2], 5),
       kappa = c(beta_par[3], 5))
+    # Define the actual model
     b_model = spde_b_model(
       n = data$n,
       y0 = unlist(data$y0),
       spde = multimesh_data$spde,
-      #init = c(log(40), log(1.3), beta_par),
       init = c(log(40), log(1.2), beta_par),
       priors = spde_priors,
       dist_to_s0 = multimesh_data$dist)
 
+    # Define the INLA cgeneric component for describing a(·)
     a_par = readRDS(filename)$a_pars2
-    #a_par = list(par = c(3.6, 1.4, -.1, 2.3, 2.7))
-
     a_priors = list(
       lambda0 = c(a_par$par[1], 5),
       lambda_lambda = c(a_par$par[2], 5),
@@ -566,6 +599,7 @@ for (my_index in seq_len(n_s0)) {
       init = a_par$par,
       priors = a_priors)
 
+    # Create the projection matrix A for the b(·)Z(·) model
     A_spatial = local({
       A = multimesh_data$A
       for (i in seq_along(data$n)) {
@@ -578,6 +612,7 @@ for (my_index in seq_len(n_s0)) {
     })
     identical(dim(A_spatial), c(nrow(df), b_model$f$n))
 
+    # Build the R-INLA stack
     stack = inla.stack(
       data = list(y = df$y),
       A = list(
@@ -589,10 +624,12 @@ for (my_index in seq_len(n_s0)) {
         a = seq_along(df$y)
       ))
 
+    # R-INLA formula
     formula = y ~ -1 +
       f(spatial, model = b_model) +
       f(a, model = a_model)
 
+    # Perform inference with R-INLA
     message("Start running INLA for iter nr. ", my_index, " / ", n_s0)
     fit = inla(
       formula = formula,
@@ -609,6 +646,7 @@ for (my_index in seq_len(n_s0)) {
       verbose = TRUE,
       num.threads = 1)
 
+    # Sample hyperparameters from the model fit
     set.seed(1)
     samples = inla.hyperpar.sample(
       n = 1e3,
@@ -616,6 +654,7 @@ for (my_index in seq_len(n_s0)) {
       improve.marginals = TRUE,
       intern = TRUE)
 
+    # Save necessary information from the model fit
     res = list(
       samples = samples,
       mode = fit$mode$theta,
@@ -631,10 +670,10 @@ for (my_index in seq_len(n_s0)) {
     tmp[["inla"]][[my_index]] = res
     saveRDS(tmp, filename)
 
+    # Print the progress to the user
     end_iter_time = proc.time()
     iter_time = (end_iter_time - start_iter_time)[3]
     total_time = (end_iter_time - start_total_time)[3]
-
     message(
       "Done with iter nr. ", my_index, " / ", n_s0, ".\n",
       "Time spent in this iteration: ", lubridate::seconds_to_period(iter_time), ".\n",
@@ -648,8 +687,11 @@ for (my_index in seq_len(n_s0)) {
 # Compute conditional moments and other properties of the model fits
 # ==============================================================================
 
+# Load the empirical moments for the observed data
 moments = readRDS(filename)$moments
 
+# Compute the indices for the rows of `coords` that represent the five chosen
+# conditioning sites we will use for inference
 s0 = radar$s0 |>
   st_coordinates()
 s0_index = sapply(
@@ -659,28 +701,41 @@ s0_index = sapply(
   }) |>
   as.numeric()
 
+# Compute moments and other properties for the five model fits in a loop,
+# one iteration per model fit
 pb = progress_bar(length(s0_index))
 model_properties = list()
 fits = readRDS(filename)
 for (i in seq_along(s0_index)) {
-#for (i in 1:2) {
+
   fit = fits$inla[[i]]
+
+  # Function for computing the Matérn correlation
   matern_corr = function(dist, rho, nu = 1.5) {
     kappa = sqrt(8 * nu) / rho
     res = 2 ^ (1 - nu) / gamma(nu) * (kappa * dist) ^ nu * besselK(kappa * dist, nu)
     res[dist == 0] = 1
     res
   }
+
   n_samples = nrow(fit$samples)
   model_properties[[i]] = local({
+
+    # The distances and threshold exceedances for which we will compute the moments
+    # and other interesting properties
     d = c(0, unique(moments$dist))
     y0 = unique(moments$y0)
+
+    # Preallocate the list of results
     res = list(
       arrays = rep(list(array(0, dim = c(length(d), length(y0), n_samples))), 5),
       mats = rep(list(matrix(0, nrow = length(d), ncol = n_samples)), 1))
     names(res$arrays) = c("a", "alpha", "beta", "zeta", "chi")
     names(res$mats) = "sd"
-    for (j in seq_len(nrow(fit$samples))) {
+
+    # Compute interesting moments and other properties for each of the `n_samples`
+    # simulated hyperparameter values,
+    for (j in seq_len(n_samples)) {
       res$mats$sd[, j] = exp(fit$samples[j, 3]) *
         sqrt(1 - matern_corr(d, exp(fit$samples[j, 2]), .5)^2)
       res$arrays$a[, , j] = fits$get_a_func(fit$samples[j, ])(y0, d)
@@ -689,7 +744,7 @@ for (i in seq_along(s0_index)) {
       res$arrays$zeta[, , j] = sqrt(
         fits$get_b_func(fit$samples[j, ])(y0, d)^2 * rep(res$mats$sd[, j]^2, length(y0))
         + 1 / fits$get_tau(fit$samples[j, ]))
-      # compute χ via integration
+      # compute χ via numerical integration
       delta_y0 = .05
       for (k in 0:100) {
         centers = y0 + (k - .5) * delta_y0
@@ -706,6 +761,7 @@ for (i in seq_along(s0_index)) {
       res$arrays$chi[1, , j] = 1
     }
 
+    # Compute the mean, and a 95% credible interval, for each of the properties of interest
     for (name in names(res$arrays)) {
       res$arrays[[name]] = data.frame(
         y0 = rep(y0, each = length(d)),
@@ -724,15 +780,17 @@ for (i in seq_along(s0_index)) {
         dplyr::mutate(name = !!name, y0 = NA)
     }
 
+    # Return the results
     res = rbind(do.call(rbind, res$arrays), do.call(rbind, res$mats))
     row.names(res) = NULL
     res
   })
-  gc()
+  gc() # Clear the RAM
   pb$tick()
 }
 pb$terminate()
 
+# Save the results
 local({
   tmp = readRDS(filename)
   tmp$model_properties = model_properties
@@ -743,8 +801,10 @@ local({
 # Plot the computed properties
 # ==============================================================================
 
+# Load the computed properties for the five model fits
 model_properties = readRDS(filename)$model_properties
 
+# Prepare data for plotting with ggplot
 plot_data = list()
 for (i in seq_along(model_properties)) {
   plot_data[[i]] = model_properties[[i]] |>
@@ -763,6 +823,7 @@ for (i in seq_along(model_properties)) {
         c(")$", "; y_0)$")[c(2, 2, 2, 1, 1, 2)])))
 }
 
+# Compute plot limits for all subplots
 plot_lims = list()
 empirical_lims = readRDS(filename)$empirical_lims
 for (i in seq_along(plot_data)) {
@@ -772,10 +833,18 @@ for (i in seq_along(plot_data)) {
       d = c(min(d), max(d)),
       value = c(0, max(c(upper, mean), na.rm = TRUE)))
   for (j in seq_along(levels(plot_lims[[i]]$name))) {
-    plot_lims[[i]]$value[j * 2] = max(plot_lims[[i]]$value[j * 2], empirical_lims$value[j * 2])
-    plot_lims[[i]]$d[j * 2] = max(plot_lims[[i]]$d[j * 2], empirical_lims$dist[j * 2])
-    plot_lims[[i]]$value[j * 2 - 1] = min(plot_lims[[i]]$value[j * 2 - 1], empirical_lims$value[j * 2 - 1])
-    plot_lims[[i]]$d[j * 2 - 1] = min(plot_lims[[i]]$d[j * 2 - 1], empirical_lims$dist[j * 2 - 1])
+    plot_lims[[i]]$value[j * 2] = max(
+      plot_lims[[i]]$value[j * 2],
+      empirical_lims$value[j * 2])
+    plot_lims[[i]]$d[j * 2] = max(
+      plot_lims[[i]]$d[j * 2],
+      empirical_lims$dist[j * 2])
+    plot_lims[[i]]$value[j * 2 - 1] = min(
+      plot_lims[[i]]$value[j * 2 - 1],
+      empirical_lims$value[j * 2 - 1])
+    plot_lims[[i]]$d[j * 2 - 1] = min(
+      plot_lims[[i]]$d[j * 2 - 1],
+      empirical_lims$dist[j * 2 - 1])
   }
 }
 plot_lims2 = plot_lims
@@ -785,6 +854,7 @@ for (i in seq_along(plot_lims2)) {
     name = factor(name, levels = levels(plot_lims[[i]]$name), labels = levels(empirical_lims$name)))
 }
 
+# Plot the empirical properties for the observed data
 obs_plot = local({
   moments = readRDS(filename)$moments
   chi = readRDS(filename)$chi
@@ -817,12 +887,13 @@ obs_plot = local({
       strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0"))
 })
 
+# Plot the properties of the model fits together with the empirical properties of the
+# observed data
 plots = list()
 for (i in seq_along(model_properties)) {
   plots[[i]] = local({
     tmp = ggplot(plot_data[[i]]) +
       geom_line(aes(x = d, y = mean, group = y0, col = y0)) +
-      #geom_ribbon(aes(x = d, ymin = lower, ymax = upper, group = y0, fill = y0), alpha = .35) +
       scale_color_continuous(na.value = "black") +
       scale_fill_continuous(na.value = "black") +
       facet_wrap(~name, scales = "free_y", nrow = 3) +
@@ -847,9 +918,9 @@ plot_tikz(
   width = 12,
   height = 6)
 
+# Plot the data in a slightly different way, for the supplementary material of the paper
 obs_plot2 = obs_plot +
   facet_wrap(~name, scales = "free_y", nrow = 2)
-
 plot = local({
   plot_lims[[1]] = plot_lims[[1]]
   plot_lims2[[1]] = plot_lims2[[1]]

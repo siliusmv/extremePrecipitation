@@ -6,20 +6,18 @@ library(INLA)
 library(lubridate)
 library(patchwork)
 
+# Activate pardiso if available
 INLA::inla.setOption(pardiso.license = "~/.R/licences/pardiso.lic")
 INLA::inla.pardiso.check()
 
+# Filenames for the marginal model fits and the intensity process
 gp_filename = file.path(results_dir(), "gp_model.rds")
 gamma_filename = file.path(results_dir(), "gamma_model.rds")
 intensity_filename = file.path(results_dir(), "intensity_process.rds")
 
+# Choose a filename for the occurrence results
 filename = file.path(results_dir(), "occurrence_process.rds")
 if (!file.exists(filename)) saveRDS(list(), filename)
-
-n_cores = 5
-
-RhpcBLASctl::blas_set_num_threads(1)
-RhpcBLASctl::omp_set_num_threads(1)
 
 # ==============================================================================
 # Load the data
@@ -49,10 +47,10 @@ if (length(bad_index) > 0) {
   n_time = nrow(radar$data)
 }
 
-# Locate neighbour_indices
+# Compute the indices of all neighbours to location nr. i, for all i = 1, 2, ..., nrow(coords)
 neighbour_radius = 1
 neighbour_indices = lapply(
-  X = 1:nrow(coords),
+  X = seq_len(nrow(coords)),
   FUN = function(i) {
     as.numeric(which(
       0 < dist_euclid(coords[i, ], coords) &
@@ -60,7 +58,8 @@ neighbour_indices = lapply(
   })
 
 # ==============================================================================
-# Transform the threshold to the precipitation scale
+# Transform the conditional extremes threshold to the precipitation scale for
+# each location in `coords`
 # ==============================================================================
 precipitation_thresholds = rep(NA_real_, length(radar$times))
 for (i in seq_along(gamma_res$b$b)) {
@@ -81,9 +80,12 @@ precipitation_thresholds = precipitation_thresholds + zero_threshold
 # Extract interesting data
 # ==============================================================================
 
+# Get the indices of coordinates from a 4x4 subgrid of the data
 delta_s0 = 4
 s0_index = get_s0_index(coords, delta_s0)
 
+# Extract all data where a threshold exceedance is observed at one of the
+# locations in the 4x4 subgrid
 data = extract_extreme_fields(
   data = radar$data,
   coords = coords,
@@ -94,6 +96,8 @@ data = extract_extreme_fields(
   remove_y0_from_y = FALSE,
   r = c(16, 48, Inf))
 
+# Compute the mean of the <=4 neighbours to a certain location at a certain time,
+# for all locations and times in `data`
 data$neighbour_mean = parallel::mclapply(
   X = seq_along(data$n),
   mc.cores = 10,
@@ -109,42 +113,22 @@ data$neighbour_mean = parallel::mclapply(
     res
   })
 
-data$y0_laplace = list()
-for (i in seq_along(data$n)) {
-  data$y0_laplace[[i]] = rep(NA_real_, data$n[i])
-  for (j in seq_len(data$n[i])) {
-    index = which(
-      gamma_res$b$day == radar$day[data$time_index[[i]][j]] &
-      gamma_res$b$year == radar$year[data$time_index[[i]][j]])
-    data$y0_laplace[[i]][j] = transform(
-      x = data$y0[[i]][j] - zero_threshold,
-      a = gamma_res$a,
-      b = gamma_res$b$b[index],
-      u = gamma_res$u$mean[index],
-      u_prob = gamma_res$prob,
-      xi = gp_res$xi,
-      s = gp_res$s$mean[index],
-      alpha = gp_res$prob)
-  }
-}
-
 # ==============================================================================
 # Perform some exploratory analysis
 # ==============================================================================
 
+# Create a data.frame for performing exploratory analysis
 df = data.frame(
   I = as.numeric(unlist(data$y) > zero_threshold),
   dist = unlist(rep(data$dist_to_s0, data$n)),
-  neighbours = as.numeric(unlist(data$neighbour_mean)),
-  y0 = unlist(lapply(
-    X = seq_along(data$y0_laplace),
-    FUN = function(i) rep(data$y0_laplace[[i]], each = data$n_loc[i]))))
+  neighbours = as.numeric(unlist(data$neighbour_mean)))
 na_index = which(is.na(df$I))
 if (length(na_index) > 0) df = df[-na_index, ]
 
+# Plot the empirical precipitation occurrence probability as a function of the
+# distance to the conditioning site
 plot1 = df |>
   dplyr::mutate(
-    y0 = floor(y0 / .2) * .2,
     dist = round(dist)) |>
   dplyr::group_by(dist) |>
   dplyr::summarise(p = mean(I)) |>
@@ -155,20 +139,24 @@ plot1 = df |>
   theme_light() +
   theme(axis.title.y = element_text(vjust = .5, angle = 0))
 
-pseudo_log = function(x) asinh(x)
-
+# Plot the empirical precipitation occurrence probability as a function of the
+# mean of the <=4 neighbouring locations
 plot2 = df |>
   dplyr::mutate(
     neighbours = round(neighbours, 1)) |>
   dplyr::group_by(neighbours) |>
   dplyr::summarise(p = mean(I)) |>
   ggplot() +
-  geom_line(aes(x = pseudo_log(neighbours), y = p)) +
+  geom_line(aes(x = asinh(neighbours), y = p)) +
   labs(x = "$\\bar y$", y = "$\\hat p(\\bar y)$", col = "$y_0$") +
-  scale_x_continuous(breaks = pseudo_log(c(0, exp(0:5))), labels = c("0", "1", paste0("e$^", 1:5, "$"))) +
+  scale_x_continuous(
+    breaks = asinh(c(0, exp(0:5))),
+    labels = c("0", "1", paste0("e$^", 1:5, "$"))) +
   theme_light() +
   theme(axis.title.y = element_text(vjust = .5, angle = 0))
 
+# Compute the indices for the rows of `coords` that represent the five chosen
+# conditioning sites we will use for inference
 s0 = radar$s0 |>
   st_coordinates()
 s0_index = sapply(
@@ -178,6 +166,8 @@ s0_index = sapply(
   }) |>
   as.numeric()
 
+# Extract some random realisations of precipitation occurrence given a threshold
+# exceedance at conditioning site nr. 4
 my_s0_index = s0_index[4]
 time_index = which(radar$data[my_s0_index, ] > threshold)
 y0 = radar$data[my_s0_index, time_index]
@@ -195,10 +185,13 @@ for (i in 1:6) {
 }
 plot_data = do.call(rbind, plot_data)
 
+# Plot the random occurrence realisations
 plot3 = plot_data |>
   ggplot() +
-  geom_raster(aes(x = x_coord, y = y_coord, fill = pseudo_log(y))) +
-  scale_fill_viridis_c(breaks = pseudo_log(c(0, exp(0:5))), labels = c("0", "1", paste0("e$^", 1:5, "$"))) +
+  geom_raster(aes(x = x_coord, y = y_coord, fill = asinh(y))) +
+  scale_fill_viridis_c(
+    breaks = asinh(c(0, exp(0:5))),
+    labels = c("0", "1", paste0("e$^", 1:5, "$"))) +
   geom_sf(data = radar$s0[4], size = 1, col = "red") +
   facet_wrap(~i) +
   theme_light() +
@@ -209,6 +202,7 @@ plot3 = plot_data |>
   labs(x = "Easting", y = "Northing", fill = "mm/h")
 plot3 = latex_friendly_map_plot(plot3)
 
+# Merge all of the occurrence plots together
 plot = patchwork::wrap_plots(plot1, plot3, plot2, nrow = 1, widths = c(.2, .6, .2)) +
   patchwork::plot_annotation(tag_levels = "A", tag_suffix = ")")
 
@@ -218,6 +212,7 @@ plot_tikz(
   width = 11,
   height = 4)
 
+# Clear up more space in the RAM
 rm(df, data)
 gc()
 
@@ -225,6 +220,8 @@ gc()
 # Perform probit modelling with INLA
 # ==============================================================================
 
+# Compute the indices for the rows of `coords` that represent the five chosen
+# conditioning sites we will use for inference
 s0 = radar$s0 |>
   st_coordinates()
 s0_index = sapply(
@@ -234,10 +231,12 @@ s0_index = sapply(
   }) |>
   as.numeric()
 
+# Perform inference in a loop, once for each of the five chosen conditioning sites
 start_total_time = proc.time()
 for (my_index in seq_along(s0_index)) {
   start_iter_time = proc.time()
 
+  # Extract the data that is relevant for conditioning site nr. `my_index`
   data = extract_extreme_fields(
     data = radar$data,
     coords = coords,
@@ -247,7 +246,6 @@ for (my_index in seq_along(s0_index)) {
     remove_y0_from_y = FALSE,
     n = 1,
     r = Inf)
-
   df = data.frame(
     I = as.numeric(unlist(data$y) > zero_threshold),
     dist = unlist(rep(data$dist_to_s0, data$n)),
@@ -255,6 +253,8 @@ for (my_index in seq_along(s0_index)) {
   na_index = which(is.na(df$y))
   if (length(na_index) > 0) df = df[-na_index, ]
 
+  # Define an spde model for the spatial probit model, in a way that is guaranteed to not
+  # keep on running indefinitely, as discussed in exec/6-intensity_process.R
   spde = local({
     mesh_coords = coords[get_s0_index(coords, 4), ]
     convex1 = -.1 # The original convexity used for creating the inner mesh boundary
@@ -274,9 +274,9 @@ for (my_index in seq_along(s0_index)) {
     inla.spde2.pcmatern(mesh, prior.range = c(40, .5), prior.sigma = c(1, .5), alpha = 1.5)
   })
 
+  # Define the constrained SPDE model used for performing inference
   dist_to_s0_from_mesh = as.numeric(dist_euclid(data$s0[[1]], spde$mesh$loc[, -3]))
   constr_index = which(dist_to_s0_from_mesh == 0)
-
   spde_priors = list(
     rho = c(70, .95),
     sigma = c(5, .99))
@@ -287,6 +287,7 @@ for (my_index in seq_along(s0_index)) {
     mesh_index = rep(seq_along(data$n), data$n),
     constr_index = constr_index)
 
+  # Create the projection matrix A for the constrained SPDE model
   A_spatial = local({
     A = inla.spde.make.A(spde$mesh, coords[data$obs_index[[1]], ])
     if (!is.null(constr_index)) A = A[, -constr_index]
@@ -297,6 +298,8 @@ for (my_index in seq_along(s0_index)) {
   identical(nrow(df), nrow(A_spatial))
   identical(spde_model$f$cgeneric$data$ints$n, ncol(A_spatial))
 
+  # Function for creating the design matrix used for defining the
+  # spline model used for modelling the mean structure
   create_X = function(dist, df = TRUE) {
     res = data.frame(
       intercept = 1,
@@ -310,24 +313,29 @@ for (my_index in seq_along(s0_index)) {
     res
   }
 
+  # Compute X
   my_df = create_X(df$dist)
 
+  # Build the R-INLA stack
   stack = inla.stack(
     data = list(I = df$I),
     A = list(spatial = A_spatial, 1),
     effects = list(spatial = seq_len(ncol(A_spatial)), my_df))
 
+  # R-INLA formula
   formula = I ~
     -1 + intercept +
     x1 + x2 + x3 + x4 + x5 + x6 +
     f(spatial, model = spde_model)
 
+  # Function for creating the precision matrix of the unconstrained SPDE model
   create_Q = function(theta, spde) {
     log_rho = theta[1]
     log_sigma = theta[2]
     inla.spde2.precision(spde, c(log_rho, log_sigma))
   }
 
+  # Perform inference with R-INLA
   message("Start the spatial probit inference")
   fit = inla(
     formula = formula,
@@ -342,6 +350,8 @@ for (my_index in seq_along(s0_index)) {
     num.threads = 1)
   message("Finished the spatial probit inference")
 
+  
+  # Sample hyperparameters from the model fit
   set.seed(1)
   n_samples = 1e3
   hyperpar_samples = inla.hyperpar.sample(
@@ -362,13 +372,13 @@ for (my_index in seq_along(s0_index)) {
     t()
   colnames(fixed_samples) = row.names(fit$summary.fixed)
 
+  # Save necessary information from the model fit
   res = list(
     create_X = create_X,
     create_Q = create_Q,
     s0 = radar$s0[my_index],
     time_index = data$time_index,
     obs_index = data$obs_index)
-
   res$spatial = list(
     fixed_samples = fixed_samples,
     hyperpar_samples = hyperpar_samples,
@@ -379,12 +389,16 @@ for (my_index in seq_along(s0_index)) {
     summary.hyperpar = fit$summary.hyperpar,
     summary.fixed = fit$summary.fixed)
 
+  # New R-INLA formula, for performing inference with the
+  # non-spatial probit model
   formula = I ~
     -1 + intercept +
     x1 + x2 + x3 + x4 + x5 + x6
 
+  # Data for the non-spatial probit model
   my_df$I = df$I
 
+  # Perform inference with R-INLA
   message("Start the non-spatial probit inference")
   fit = inla(
     formula = formula,
@@ -398,6 +412,7 @@ for (my_index in seq_along(s0_index)) {
     num.threads = 1)
   message("Finished the non-spatial probit inference")
 
+  # Sample hyperparameters from the model fit
   set.seed(1)
   fixed_samples = local({
     selection = rep(list(1), nrow(fit$summary.fixed))
@@ -412,6 +427,7 @@ for (my_index in seq_along(s0_index)) {
     t()
   colnames(fixed_samples) = row.names(fit$summary.fixed)
 
+  # Save necessary information from the model fit
   res$non_spatial = list(
     fixed_samples = fixed_samples,
     cpu = fit$cpu,
@@ -419,15 +435,16 @@ for (my_index in seq_along(s0_index)) {
     hyperpar = fit$summary.hyperpar,
     summary.fixed = fit$summary.fixed)
 
+  # Save all of the recorded information from the two model fits
   tmp = readRDS(filename)
   if (is.null(tmp$inla)) tmp$inla = list()
   tmp$inla[[my_index]] = res
   saveRDS(tmp, filename)
 
+  # Print the progress to the user
   end_iter_time = proc.time()
   iter_time = (end_iter_time - start_iter_time)[3]
   total_time = (end_iter_time - start_total_time)[3]
-
   message(
     "Done with iter nr. ", my_index, " / ", length(s0_index), ".\n",
     "Time spent in this iteration: ", lubridate::seconds_to_period(iter_time), ".\n",

@@ -6,6 +6,7 @@ library(dplyr)
 library(tidyr)
 library(scales)
 
+# Filenames for all of the fitted model results
 gp_filename = file.path(results_dir(), "gp_model.rds")
 gamma_filename = file.path(results_dir(), "gamma_model.rds")
 intensity_filename = file.path(results_dir(), "intensity_process.rds")
@@ -30,16 +31,17 @@ n_time = length(radar$times)
 radar$data = t(radar$data) # We will mostly extract data for all locations at different time points
 radar$data[radar$data <= zero_threshold] = 0
 
+# Find out which of the locations in `coords` are inside the Stordalselva catchment
 inside_catchment_index = radar$coords |>
   st_within(catchment, sparse = FALSE) |>
   which()
 coords_inside_catchment = coords[inside_catchment_index, ]
 
+# Remove locations close to the Rissa radar
 rissa = radar$rissa
 dist_to_rissa = as.numeric(st_distance(rissa, radar$coords))
 bad_radius = 5
 bad_index = which(dist_to_rissa <= bad_radius)
-
 if (length(bad_index) > 0) {
   radar$coords = radar$coords[-bad_index, ]
   radar$data = radar$data[-bad_index, ]
@@ -51,6 +53,8 @@ if (length(bad_index) > 0) {
 # Extract the extremes over the catchment
 # ==============================================================================
 
+# Transform the conditional extremes threshold to the precipitation scale for
+# each location in `coords`
 precipitation_thresholds = rep(NA_real_, length(radar$times))
 for (i in seq_along(gamma_res$b$b)) {
   index = which(gamma_res$b$day[i] == radar$day & gamma_res$b$year[i] == radar$year)
@@ -66,10 +70,13 @@ for (i in seq_along(gamma_res$b$b)) {
 }
 precipitation_thresholds = precipitation_thresholds + zero_threshold
 
+# Compute the indices for the rows of `coords` that represent the five chosen
+# conditioning sites we will use for inference
 s0_indices = sapply(
   X = radar$s0,
   FUN = \(x) which(abs(x[1] - coords[, 1]) <= .1 & abs(x[2] - coords[, 2]) <= .1))
 
+# Extract all data where a threshold exceedance is observed at one of the five conditioning sites
 obs_data = extract_extreme_fields(
   data = radar$data,
   coords = coords,
@@ -82,6 +89,7 @@ obs_data = extract_extreme_fields(
 # Create the simulations
 # ==============================================================================
 
+# Define an spde model in order to simulate from the fitted models
 mesh = inla.mesh.2d(
   loc = coords_inside_catchment,
   boundary = list(
@@ -94,6 +102,7 @@ n_samples = 1000
 n_per_sample = 1
 n_cores = 10
 
+# Simulate precipitation data from location nr. i, for i = 1, 2, ..., 5
 set.seed(123)
 simulations = list()
 pb = progress_bar(length(radar$s0))
@@ -103,10 +112,12 @@ for (i in seq_along(radar$s0)) {
       which()
     tmp = intensity_res[["inla"]][[intensity_index]]
 
+    # Find the index for conditioning site nr. i
     s0_index = which(
       abs(coords_inside_catchment[, 1] - tmp$s0[[1]][1]) < .1 &
       abs(coords_inside_catchment[, 2] - tmp$s0[[1]][2]) < .1)
 
+    # Simulate intensity samples from model fit nr. i
     intensity_samples = simulate_intensity_posterior(
       samples = tmp$samples[seq_len(min(n_samples, nrow(tmp$samples))), ],
       threshold = threshold,
@@ -117,13 +128,13 @@ for (i in seq_along(radar$s0)) {
       get_b_func = intensity_res$get_b_func,
       get_Q = intensity_res$get_Q,
       get_tau = intensity_res$get_tau,
-      #verbose = TRUE,
       n_cores = n_cores,
       n_per_sample = n_per_sample)
     intensity_samples$y = intensity_samples$y[[1]]
     intensity_samples$y0 = intensity_samples$y0[[1]]
     intensity_samples$dist_to_s0 = intensity_samples$dist_to_s0[[1]]
 
+    # Add the value of the threshold exceedance y0 into the simulated intensities
     intensity_samples$y = rbind(
       intensity_samples$y[seq_len(s0_index - 1), ],
       intensity_samples$y0,
@@ -144,7 +155,7 @@ for (i in seq_along(radar$s0)) {
     year = radar$year[time_index]
     intensity_samples$time_index = time_index
 
-    # Backtransform
+    # Backtransform the intensity samples to the precipitation scale
     all_indices = NULL
     for (j in seq_along(gamma_res$b$b)) {
       index = which(
@@ -167,12 +178,12 @@ for (i in seq_along(radar$s0)) {
 
     occurrence_index = sapply(occurrence_res$inla, \(x) identical(x$s0, radar$s0[i])) |>
       which()
-
     tmp = occurrence_res$inla[[occurrence_index]]
 
     # Spatial probit model
     # ------------------------------------------------------------------------------
 
+    # Find out if the SPDE model of the spatial probit model is constrained or not
     if (tmp$spatial$constr) {
       constr_index = which(
         abs(spde$mesh$loc[, 1] - tmp$s0[[1]][1]) < .1 &
@@ -182,6 +193,7 @@ for (i in seq_along(radar$s0)) {
       constr_index = NULL
     }
 
+    # Simulate precipitation occurrences from the spatial probit model
     occurrence_samples = simulate_spat_probit_posterior(
       hyperpar_samples = tmp$spatial$hyperpar_samples[
         seq_len(min(n_samples, nrow(tmp$spatial$hyperpar_samples))), ],
@@ -192,28 +204,31 @@ for (i in seq_along(radar$s0)) {
       coords = coords_inside_catchment,
       replace_zeros_at_s0 = !tmp$spatial$constr,
       spde = spde,
-      #verbose = TRUE,
       s0_index = s0_index,
       constr_index = constr_index,
       create_X = tmp$create_X,
       create_Q = tmp$create_Q)
 
+    # Multiply intensity samples with occurrence samples
     stopifnot(all(dim(intensity_samples$y) == dim(occurrence_samples$simulations)))
     intensity_samples$y_spatial_probit = intensity_samples$y * occurrence_samples$simulations
 
+    # Simulate precipitation occurrences from the non-spatial probit model
     occurrence_samples = simulate_probit_posterior(
       fixed_samples = tmp$non_spatial$fixed_samples[
         seq_len(min(n_samples, nrow(tmp$non_spatial$fixed_samples))), ],
       n_per_sample = n_per_sample,
       n_cores = n_cores,
       coords = coords_inside_catchment,
-      #replace_zeros_at_s0 = !tmp$spatial$constr,
       s0_index = s0_index,
       create_X = tmp$create_X)
 
+    # Multiply intensity samples with occurrence samples
     stopifnot(all(dim(intensity_samples$y) == dim(occurrence_samples$simulations)))
     intensity_samples$y_probit = intensity_samples$y * occurrence_samples$simulations
 
+    # Set small precipitation intensity values equal to zero,
+    # using thethreshold occurrence model
     intensity_samples$y_threshold = threshold_occurrence(
       samples = intensity_samples$y,
       nonzero_prob = mean(obs_data$y[[i]] > zero_threshold))
@@ -234,11 +249,13 @@ simulations$pretty_names = factor(
   labels = c("Spatial probit", "Probit", "Threshold", "Nonzero"))
 
 # ==============================================================================
-# Compare sums
+# Compare sums of aggregated precipitation using QQ plots
 # ==============================================================================
 
-#dists = c(2^(1:4), Inf)
+# Define the radii of the balls used for computing aggregated precipitation
 dists = c(seq(5, 20, by = 5), Inf)
+
+# Create QQ plots of simulated aggregated precipitation for each ball radius
 plot_data = list()
 for (i in seq_along(dists)) {
   plot_data[[i]] = local({
@@ -277,7 +294,7 @@ for (i in seq_along(dists)) {
 }
 plot_data = do.call(rbind, plot_data)
 
-# All QQ plots combined on one page
+# Merge all of the QQ plots together into one single plot
 plot = local({
   res = list()
   for (i in seq_along(dists)) {
@@ -314,7 +331,7 @@ plot_tikz(
   width = 6.5 * 1.5,
   height = 8 * 1.5)
 
-# QQ plots divided over multiple pages
+# Create QQ plots divided over multiple pages, one page for each ball radius
 plots = local({
   res = list()
   for (j in unique(plot_data$j)) {
@@ -355,10 +372,16 @@ plot_tikz(
   height = 3 * .9)
 
 # ==============================================================================
-# Plot simulations and observations
+# Plot simulated and observed precipitation
 # ==============================================================================
 
+# Only plot simulated and observed data where the observation at the
+# conditioning site exceeds `my_threshold`
 my_threshold = 5
+
+# Sample random precipitation realisations from the observed and the
+# simulated data sets, and format the realisations in a way that is easy
+# to plot with ggplot
 set.seed(123)
 plot_data = local({
   plot_data = list()
@@ -378,7 +401,6 @@ plot_data = local({
     obs_data$y[[i]] = obs_data$y[[i]][, index, drop = FALSE]
     obs_data$n[i] = length(index)
   }
-  #s0_choice = sample.int(length(radar$s0), 10, replace = TRUE)
   s0_choice = rep(1:5, each = 2)
   for (i in seq_along(s0_choice)) {
     j = sample.int(obs_data$n[s0_choice[i]], 1)
@@ -394,7 +416,9 @@ plot_data = local({
         simulations[[simulations$names[ii]]][[s0_choice[i]]][, j]
     }
     plot_data[[i]] = plot_data[[i]] |>
-      tidyr::pivot_longer(tidyselect::all_of(c("Observations", levels(simulations$pretty_names)))) |>
+      tidyr::pivot_longer(
+        tidyselect::all_of(c("Observations", levels(simulations$pretty_names)))
+      ) |>
       dplyr::mutate(
         value = ifelse(value <= zero_threshold, NA_real_, value),
         name = factor(name, levels = c("Observations", levels(simulations$pretty_names))))
@@ -403,6 +427,8 @@ plot_data = local({
   plot_data
 })
 
+# Create an sf object of the locations of the five conditioning sites to add to the
+# plots of simulated and observed precipitation realisations
 s0_choice = attr(plot_data, "s0_choice")
 s0_data = st_as_sf(radar$s0)[rep(s0_choice, each = length(levels(plot_data[[1]]$name))), ] |>
   dplyr::mutate(
@@ -410,15 +436,16 @@ s0_data = st_as_sf(radar$s0)[rep(s0_choice, each = length(levels(plot_data[[1]]$
     i = rep(seq_along(plot_data), each = length(levels(plot_data[[1]]$name))),
     name = factor(name, levels = unique(name)))
 
-pseudo_log = function(x) asinh(x)
-
+# Plot everything
 plot = plot_data |>
   dplyr::bind_rows() |>
   ggplot() +
   geom_raster(aes(x = x_coord, y = y_coord, fill = sqrt(value))) +
   geom_sf(data = catchment, fill = NA) +
   geom_sf(data = s0_data, col = "red", size = 1) +
-  scale_fill_viridis_c(breaks = pseudo_log(c(0, exp(0:5))), labels = c("0", "1", paste0("e$^", 1:5, "$"))) +
+  scale_fill_viridis_c(
+    breaks = asinh(c(0, exp(0:5))),
+    labels = c("0", "1", paste0("e$^", 1:5, "$"))) +
   facet_grid(i ~ name) +
   theme_light() +
   theme(
@@ -443,9 +470,12 @@ plot_tikz(
   height = 12)
 
 # ==============================================================================
-# Create simulations over a larger domain
+# Create simulations over a larger domain than the Stordalselva catchment
+# (i.e., basicly repeat what we did previously, but this time for the entire
+# `coords` object, instead of for only the locations inside the catchment)
 # ==============================================================================
 
+# Define an spde model in order to simulate from the fitted models
 mesh = inla.mesh.2d(
   loc = coords,
   boundary = list(
@@ -458,6 +488,9 @@ n_samples = 200
 n_per_sample = 10
 n_cores = 10
 
+# Extract all observed precipitation data for the entire spatial domain
+# from when we have a threshold exceedance at one of the five chosen
+# conditioning sites
 obs_data = extract_extreme_fields(
   data = radar$data,
   coords = coords,
@@ -467,6 +500,7 @@ obs_data = extract_extreme_fields(
   r = Inf,
   remove_y0_from_y = FALSE)
 
+# Simulate precipitation data from location nr. i, for i = 1, 2, ..., 5
 set.seed(123)
 simulations = list()
 pb = progress_bar(length(radar$s0))
@@ -476,10 +510,12 @@ for (i in seq_along(radar$s0)) {
       which()
     tmp = intensity_res[["inla"]][[intensity_index]]
 
+    # Find the index for conditioning site nr. i
     s0_index = which(
       abs(coords[, 1] - tmp$s0[[1]][1]) < .1 &
       abs(coords[, 2] - tmp$s0[[1]][2]) < .1)
 
+    # Simulate intensity samples from model fit nr. i
     intensity_samples = simulate_intensity_posterior(
       samples = tmp$samples[seq_len(min(n_samples, nrow(tmp$samples))), ],
       threshold = threshold,
@@ -496,6 +532,7 @@ for (i in seq_along(radar$s0)) {
     intensity_samples$y0 = intensity_samples$y0[[1]]
     intensity_samples$dist_to_s0 = intensity_samples$dist_to_s0[[1]]
 
+    # Add the value of the threshold exceedance y0 into the simulated intensities
     intensity_samples$y = rbind(
       intensity_samples$y[seq_len(s0_index - 1), ],
       intensity_samples$y0,
@@ -516,7 +553,7 @@ for (i in seq_along(radar$s0)) {
     year = radar$year[time_index]
     intensity_samples$time_index = time_index
 
-    # Backtransform
+    # Backtransform the intensity samples to the precipitation scale
     all_indices = NULL
     for (j in seq_along(gamma_res$b$b)) {
       index = which(
@@ -545,6 +582,7 @@ for (i in seq_along(radar$s0)) {
     # Spatial probit model
     # ------------------------------------------------------------------------------
 
+    # Find out if the SPDE model of the spatial probit model is constrained or not
     if (tmp$spatial$constr) {
       constr_index = which(
         abs(spde$mesh$loc[, 1] - tmp$s0[[1]][1]) < .1 &
@@ -554,6 +592,7 @@ for (i in seq_along(radar$s0)) {
       constr_index = NULL
     }
 
+    # Simulate precipitation occurrences from the spatial probit model
     occurrence_samples = simulate_spat_probit_posterior(
       hyperpar_samples = tmp$spatial$hyperpar_samples[
         seq_len(min(n_samples, nrow(tmp$spatial$hyperpar_samples))), ],
@@ -569,9 +608,11 @@ for (i in seq_along(radar$s0)) {
       create_X = tmp$create_X,
       create_Q = tmp$create_Q)
 
+    # Multiply intensity samples with occurrence samples
     stopifnot(all(dim(intensity_samples$y) == dim(occurrence_samples$simulations)))
     intensity_samples$y_spatial_probit = intensity_samples$y * occurrence_samples$simulations
 
+    # Simulate precipitation occurrences from the non-spatial probit model
     occurrence_samples = simulate_probit_posterior(
       fixed_samples = tmp$non_spatial$fixed_samples[
         seq_len(min(n_samples, nrow(tmp$non_spatial$fixed_samples))), ],
@@ -581,9 +622,12 @@ for (i in seq_along(radar$s0)) {
       s0_index = s0_index,
       create_X = tmp$create_X)
 
+    # Multiply intensity samples with occurrence samples
     stopifnot(all(dim(intensity_samples$y) == dim(occurrence_samples$simulations)))
     intensity_samples$y_probit = intensity_samples$y * occurrence_samples$simulations
 
+    # Set small precipitation intensity values equal to zero,
+    # using thethreshold occurrence model
     intensity_samples$y_threshold = threshold_occurrence(
       samples = intensity_samples$y,
       nonzero_prob = mean(obs_data$y[[i]] > zero_threshold))
@@ -604,18 +648,21 @@ simulations$pretty_names = factor(
   labels = c("Spatial probit", "Probit", "Threshold", "Nonzero"))
 
 # ==============================================================================
-# Examine occurrence properties
+# Examine occurrence properties for the simulated data,
+# just as how we did it in exec/7-occurrence_process.R
 # ==============================================================================
 
-# Locate neighbour_indices
+# Compute the indices of all neighbours to location nr. i, for all i = 1, 2, ..., nrow(coords)
 neighbour_radius = 1
 neighbour_indices = lapply(
-  X = 1:nrow(coords),
+  X = seq_len(nrow(coords)),
   FUN = function(i) {
     dd = dist_euclid(coords[i, ], coords)
     as.numeric(which(0 < dd & dd <= neighbour_radius))
   })
 
+# Compute the mean of the <=4 neighbours to a certain location at a certain time,
+# for all locations and times in the simulated and observed data sets
 neighbour_means = list()
 for (name in simulations$names) {
   neighbour_means[[name]] = parallel::mclapply(
@@ -641,6 +688,7 @@ neighbour_means[["obs"]] = parallel::mclapply(
     res
   })
 
+# Prepare the data for plotting with ggplot
 df = local({
   res = list()
   for (j in seq_along(simulations$names)) {
@@ -668,6 +716,8 @@ df = local({
   dplyr::bind_rows(res)
 })
 
+# Plot the empirical precipitation occurrence probability as a function of the
+# distance to the conditioning site
 plot1 = df |>
   dplyr::mutate(d = round(d)) |>
   dplyr::group_by(d, name) |>
@@ -678,8 +728,6 @@ plot1 = df |>
   geom_line(aes(x = d, y = p, group = name, col = name, size = name, linetype = name)) +
   labs(x = "$d$", y = "$\\hat p(d)$", col = "", linetype = "", size = "") +
   scale_linetype_manual(values = c("solid", rep("dashed", length(simulations$names)))) +
-  #scale_linewidth(values = c(1.9, rep(1.4, length(simulations$names)))) +
-  #scale_linewidth_discrete(range = c(1.4, 1.9)) +
   scale_size_manual(values = c(1.5, rep(.8, length(simulations$names)))) +
   scale_color_manual(values = c("black", scales::hue_pal()(length(simulations$names)))) +
   theme_light() +
@@ -688,8 +736,8 @@ plot1 = df |>
     text = element_text(size = 18),
     legend.text = element_text(size = 15))
 
-pseudo_log = function(x) asinh(x)
-
+# Plot the empirical precipitation occurrence probability as a function of the
+# mean of the <=4 neighbouring locations
 plot2 = df |>
   dplyr::mutate(m = ifelse(neighbour_mean < 1, round(neighbour_mean, 1), round(neighbour_mean))) |>
   dplyr::group_by(m, name) |>
@@ -697,22 +745,23 @@ plot2 = df |>
   dplyr::mutate(name = factor(
     name, levels = c("Observations", levels(simulations$pretty_names)))) |>
   ggplot() +
-  geom_line(aes(x = pseudo_log(m), y = p, group = name, col = name, size = name, linetype = name)) +
+  geom_line(aes(x = asinh(m), y = p, group = name, col = name, size = name, linetype = name)) +
   labs(x = "$\\bar y$", y = "$\\hat p(\\bar y)$", col = "", linetype = "", size = "") +
   scale_linetype_manual(values = c("solid", rep("dashed", length(simulations$names)))) +
-  #scale_linewidth_discrete(values = c(1.9, rep(1.4, length(simulations$names)))) +
   scale_size_manual(values = c(1.5, rep(.8, length(simulations$names)))) +
   scale_color_manual(values = c("black", scales::hue_pal()(length(simulations$names)))) +
   scale_x_continuous(
-    breaks = pseudo_log(c(0, exp(0:3))),
+    breaks = asinh(c(0, exp(0:3))),
     labels = c("0", "1", paste0("e$^", 1:3, "$")),
-    limits = c(0, pseudo_log(exp(3)))) +
+    limits = c(0, asinh(exp(3)))) +
   theme_light() +
   theme(
     axis.title.y = element_text(vjust = .5, angle = 0),
     text = element_text(size = 18),
     legend.text = element_text(size = 12))
 
+# Extract some random realisations of precipitation occurrence given a threshold
+# exceedance at conditioning site nr. 4
 my_s0_index = s0_indices[4]
 time_index = which(radar$data[my_s0_index, ] > precipitation_thresholds)
 y0 = radar$data[my_s0_index, time_index]
@@ -729,11 +778,13 @@ for (i in 1:6) {
     i = i)
 }
 plot_data = do.call(rbind, plot_data)
+
+# Plot the random occurrence realisations
 plot3 = plot_data |>
   ggplot() +
-  geom_raster(aes(x = x_coord, y = y_coord, fill = pseudo_log(y))) +
+  geom_raster(aes(x = x_coord, y = y_coord, fill = asinh(y))) +
   scale_fill_viridis_c(
-    breaks = pseudo_log(c(0, exp(0:5))),
+    breaks = asinh(c(0, exp(0:5))),
     labels = c("0", "1", paste0("e$^", 1:5, "$"))) +
   geom_sf(data = radar$s0[4], size = 1, col = "red") +
   facet_wrap(~i) +
@@ -748,6 +799,7 @@ plot3 = plot_data |>
   labs(x = "Easting", y = "Northing", fill = "mm/h")
 plot3 = latex_friendly_map_plot(plot3)
 
+# Merge all of the occurrence plots together
 plot = patchwork::wrap_plots(
   plot3, plot1 + guides(col = "none", size = "none", linetype = "none"), plot2,
   nrow = 1,
@@ -761,9 +813,13 @@ plot_tikz(
   height = 4)
 
 # ==============================================================================
-# Compute χ
+# Compute χ_p for the observed and simulated data
 # ==============================================================================
 
+# This is easier if we transform everything to the Laplace scale, so we
+# do that for both the observed and the simulated data
+
+# Transform observed data
 obs_data_laplace = local({
   index_count = rep(0, length(obs_data$n))
   pb = progress_bar(sum(obs_data$n))
@@ -801,6 +857,7 @@ obs_data_laplace = local({
   obs_data
 })
 
+# Transformed simulated data
 simulations_laplace = local({
   index_count = rep(0, length(simulations$n))
   pb = progress_bar(sum(simulations$n))
@@ -840,6 +897,7 @@ simulations_laplace = local({
   simulations
 })
 
+# Define different thresholds for computing χ
 thresholds = seq(ceiling(intensity_res$threshold / .1) * .1, 6, by = .1)
 chi = list()
 for (i in seq_along(obs_data_laplace$n)) {
@@ -863,6 +921,7 @@ for (i in seq_along(obs_data_laplace$n)) {
   }
 }
 
+# Plot the estimators for χ
 plots = list()
 for (i in seq_along(chi)) {
   plots[[i]] = chi[[i]] |>
