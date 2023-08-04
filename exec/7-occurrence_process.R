@@ -69,7 +69,7 @@ for (i in seq_along(gamma_res$b$b)) {
       a = gamma_res$a,
       b = gamma_res$b$b[i],
       u = gamma_res$u$mean[i],
-      u_prob = gamma_res$prob,
+      p_u = gamma_res$prob,
       xi = gp_res$xi,
       s = gp_res$s$mean[i],
       alpha = gp_res$prob)

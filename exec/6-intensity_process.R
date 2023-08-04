@@ -71,7 +71,7 @@ for (i in seq_len(nrow(gamma_res$b))) {
       a = gamma_res$a,
       b = gamma_res$b$b[i],
       u = gamma_res$u$mean[i],
-      u_prob = gamma_res$prob,
+      p_u = gamma_res$prob,
       xi = gp_res$xi,
       s = gp_res$s$mean[i],
       alpha = gp_res$prob)
@@ -81,7 +81,7 @@ for (i in seq_len(nrow(gamma_res$b))) {
 pb$terminate()
 
 # Plot the transformed data to see that it looks like it should
-hist(as.numeric(radar$data), breaks = seq(-20, 20, by = .1))
+hist(as.numeric(radar$data), breaks = seq(-21, 21, by = .1))
 summary(as.numeric(radar$data))
 # This looks almost perfect. And we don't really care that much
 # about the bump all the way to the left...

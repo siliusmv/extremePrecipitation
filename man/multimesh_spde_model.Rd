@@ -2,17 +2,8 @@
 % Please edit documentation in R/inla-generic-models.R
 \name{multimesh_spde_model}
 \alias{multimesh_spde_model}
-\title{spdes: a list of M spdes
-priors: a list of PC priors for the range and standard deviation parameters
-init: initial values for the range and standard deviation parameters
-mesh_index: a vector of length N containing integers between 1 and M, stating
-which mesh design is used for which time point.
-constr_index: either NULL or a list of length M, with constraining indices
-for each mesh. If an element of the list is a negative number, then we
-don't do any constraining at the corresponding mesh
-is_fixed: a vector of bools stating if the parameters should be estimated or
-fixed equal to their initial values
-debug: a bool stating if INLA should print debug information}
+\title{Function for defining an SPDE model that uses multiple different meshes,
+that can be constrained at multiple different locations.}
 \usage{
 multimesh_spde_model(
   spdes,
@@ -25,6 +16,7 @@ multimesh_spde_model(
 )
 }
 \description{
+The input variables are:
 spdes: a list of M spdes
 priors: a list of PC priors for the range and standard deviation parameters
 init: initial values for the range and standard deviation parameters

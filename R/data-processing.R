@@ -8,11 +8,17 @@
 #'   as conditioning sites.
 #' threshold: The threshold t for the conditional extremes model. This can either be a single
 #'   number, or a vector with one element for each of the n columns of the data
-#' remove_y0_from_y: a Boolean stating whether y0 should be removed from y or not
-#' obs_index: A vector of indices showing which coordinates we care about.
+#' obs_index: A vector of indices showing which coordinates we care about extracting
+#'   data from
 #' n, r: Used for only extracting a subset of the observations in a circle around
 #'   the conditioning site. See the docs for extract_thinned_out_circles() for more info.
-#' If obs_index is non-null, we will not use the values of n and r.
+#'   If obs_index is non-null, we will not use the values of n and r.
+#' verbose: Boolean. Should we print the progress or not?
+#' remove_y0_from_y: a Boolean stating whether y0 should be removed from y in the
+#'   extracted data, or not. See the output section for a better understanding of what
+#'   this means
+#' n_cores: an integer describing how many cores in parallel should be used
+#'   for running the function
 #'
 #' The output of the function is a list where each element is a list or vector
 #' of length equal, containing these variables:
@@ -34,6 +40,8 @@
 #'   exceedances from conditioning site nr. i.
 #' n: A vector where element nr. i is the number of threshold exceedances at
 #'   conditioning site nr. i.
+#' n_loc: A vector where element nr. i is the number of locations we have extracted
+#'   observations from for conditioning site nr. i.
 #' @export
 extract_extreme_fields = function(data,
                                   coords,
@@ -110,6 +118,9 @@ extract_extreme_fields = function(data,
   res
 }
 
+#' This function takes in a (d x 2)-dimensional matrix of coordinates from a regular grid
+#' together with a distance Δs0, and then it returns the indices of a subgrid of the
+#' original grid, that has a resolution of Δs0 x Δs0
 #' @export
 get_s0_index = function(coords, delta_s0 = 1) {
   stopifnot(all(as.integer(delta_s0) == delta_s0))
@@ -120,7 +131,7 @@ get_s0_index = function(coords, delta_s0 = 1) {
     y = y_coords[seq(delta_s0, length(y_coords), by = delta_s0)]) |>
     as.matrix()
   s0_index = lapply(
-    X = 1:nrow(s0_locs),
+    X = seq_len(nrow(s0_locs)),
     FUN = function(i) which(coords[, 1] == s0_locs[i, 1] & coords[, 2] == s0_locs[i, 2]))
   s0_index = s0_index[sapply(s0_index, length) > 0] |>
     unlist() |>

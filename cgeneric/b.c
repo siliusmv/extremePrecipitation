@@ -150,6 +150,7 @@ double * spde_b_model(inla_cgeneric_cmd_tp cmd,
 	smat_smat_merge(&precision, all_precisions + s0_index[i]);
       }
 
+      // Compute the values of beta for each of the conditioning sites
       double ** beta_vals = Malloc(n_mesh, double *);
       for (int i = 0; i < n_mesh; ++i) {
 	beta_vals[i] = Malloc(data->doubles[dist_start + i]->len, double);
@@ -157,6 +158,7 @@ double * spde_b_model(inla_cgeneric_cmd_tp cmd,
 	  beta_vals[i][j] = beta0 * exp(-pow(data->doubles[dist_start + i]->doubles[j] / lambda, kappa));
 	}
       }
+
       // Create a diagonal matrix containing the values of 1 / b, that can be used
       // for rescaling the precision matrix with the correct b values
       diag_mat_tp b_inv;
@@ -247,31 +249,31 @@ double * spde_b_model(inla_cgeneric_cmd_tp cmd,
 
       int count = 0;
       double * prior;
-      if (!is_fixed[0]) { // rho
+      if (!is_fixed[0]) { // rho, PC prior
 	prior = data->doubles[prior_start + count]->doubles;
 	double lambda0 = -log(prior[1]) * prior[0];
 	ret[0] += log(lambda0) - lambda0 * exp(-log_rho) - log_rho;
 	++count;
       }
-      if (!is_fixed[1]) { // sigma
+      if (!is_fixed[1]) { // sigma, PC prior
 	prior = data->doubles[prior_start + count]->doubles;
 	double lambda1 = -log(prior[1]) / prior[0];
 	ret[0] += log(lambda1) - lambda1 * exp(log_sigma) + log_sigma;
 	++count;
       }
-      if (!is_fixed[2]) { // beta0
+      if (!is_fixed[2]) { // beta0, Gaussian prior
 	prior = data->doubles[prior_start + count]->doubles;
 	ret[0] += gaussian_const - log(prior[1]) -
 	  pow(log(beta0) - log(1 - beta0) - prior[0], 2) / (2 * pow(prior[1], 2));
 	++count;
       }
-      if (!is_fixed[3]) { // lambda
+      if (!is_fixed[3]) { // lambda, Gaussian prior
 	prior = data->doubles[prior_start + count]->doubles;
 	ret[0] += gaussian_const - log(prior[1]) -
 	  pow(log(lambda) - prior[0], 2) / (2 * pow(prior[1], 2));
 	++count;
       }
-      if (!is_fixed[4]) { // kappa
+      if (!is_fixed[4]) { // kappa, Gaussian prior
 	prior = data->doubles[prior_start + count]->doubles;
 	ret[0] += gaussian_const - log(prior[1]) -
 	  pow(log(kappa) - prior[0], 2) / (2 * pow(prior[1], 2));
@@ -383,6 +385,8 @@ double * spde_model(inla_cgeneric_cmd_tp cmd,
       inla_cgeneric_smat_tp * all_precisions =
 	spde_precision_multimesh(log_rho, log_sigma, data->mats, data->smats, n_mesh);
 
+      // Constrain the SPDE approximation by setting some mesh nodes equal to zero and removing
+      // their elements from the precision matrix
       if (any_constraints) {
 	for (int i = 0; i < n_mesh; ++i) {
 	  if (data->ints[constr_start + i]->len == 1 && data->ints[constr_start + i]->ints[0] < 0) continue;
@@ -424,6 +428,8 @@ double * spde_model(inla_cgeneric_cmd_tp cmd,
       inla_cgeneric_smat_tp * all_precisions =
 	spde_precision_multimesh(log_rho, log_sigma, data->mats, data->smats, n_mesh);
 
+      // Constrain the SPDE approximation by setting some mesh nodes equal to zero and removing
+      // their elements from the precision matrix
       if (any_constraints) {
 	for (int i = 0; i < n_mesh; ++i) {
 	  if (data->ints[constr_start + i]->len == 1 && data->ints[constr_start + i]->ints[0] < 0) continue;
@@ -504,13 +510,13 @@ double * spde_model(inla_cgeneric_cmd_tp cmd,
 
       int count = 0;
       double * prior;
-      if (!is_fixed[0]) { // rho
+      if (!is_fixed[0]) { // rho, PC prior
 	prior = data->doubles[prior_start + count]->doubles;
 	double lambda0 = -log(prior[1]) * prior[0];
 	ret[0] += log(lambda0) - lambda0 * exp(-log_rho) - log_rho;
 	++count;
       }
-      if (!is_fixed[1]) { // sigma
+      if (!is_fixed[1]) { // sigma, PC prior
 	prior = data->doubles[prior_start + count]->doubles;
 	double lambda1 = -log(prior[1]) / prior[0];
 	ret[0] += log(lambda1) - lambda1 * exp(log_sigma) + log_sigma;

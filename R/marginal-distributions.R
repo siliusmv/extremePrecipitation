@@ -1,14 +1,18 @@
 
+#' Transform a precipitation observations from the precipitation scale
+#' to the Laplace scale using the probability integral transform
+#'
+#' Input variables:
 #' x: The data to be transformed
 #' a: shape-parameter of the gamma distribution
 #' b: rate-parameter of the gamma distribution
 #' u: threshold for the GP distribution
-#' u_prob: The probability corresponding to the threshold u
+#' p_u: The probability corresponding to the threshold u
 #' xi: Tail parameter of the GP distribution
 #' s: Scale parameter of the GP distribution
 #' alpha: probability deciding which quantile the scale parameter is equal to
 #' @export
-transform = function(x, a, b, u, u_prob, xi, s, alpha) {
+transform = function(x, a, b, u, p_u, xi, s, alpha) {
   res = rep(NA_real_, length(x))
   small_index = which(x <= u)
   if (any(small_index)) {
@@ -16,34 +20,46 @@ transform = function(x, a, b, u, u_prob, xi, s, alpha) {
   }
   big_index = which(x > u)
   if (any(big_index)) {
-    res[big_index] = u_prob + (1 - u_prob) * pgp(x[big_index], s, xi, u = u, alpha = alpha)
+    res[big_index] = p_u + (1 - p_u) * pgp(x[big_index], s, xi, u = u, alpha = alpha)
   }
   qlaplace(res)
 }
 
+#' Transform a random variable on the Laplace scale back to the precipitation scale
+#' using the probability integral transform
+#'
 #' x: The data to be transformed
 #' a: shape-parameter of the gamma distribution
 #' b: rate-parameter of the gamma distribution
 #' u: threshold for the GP distribution
-#' u_prob: The probability corresponding to the threshold u
+#' p_u: The probability corresponding to the threshold u
 #' xi: Tail parameter of the GP distribution
 #' s: Scale parameter of the GP distribution
 #' alpha: probability deciding which quantile the scale parameter is equal to
 #' @export
-inv_transform = function(x, a, b, u, u_prob, xi, s, alpha) {
+inv_transform = function(x, a, b, u, p_u, xi, s, alpha) {
   p = plaplace(x)
   res = rep(NA_real_, length(p))
-  small_index = which(p <= u_prob)
+  small_index = which(p <= p_u)
   if (any(small_index)) {
     res[small_index] = qgamma(p[small_index], shape = a, rate = b)
   }
-  big_index = which(p > u_prob)
+  big_index = which(p > p_u)
   if (any(big_index)) {
-    res[big_index] = qgp((p[big_index] - u_prob) / (1 - u_prob), s, xi, u = u, alpha = alpha)
+    res[big_index] = qgp((p[big_index] - p_u) / (1 - p_u), s, xi, u = u, alpha = alpha)
   }
   res
 }
 
+#' Cumulative distribution function for the generalised Pareto (GP) distribution
+#'
+#' Input variables:
+#' x: The input x to the function F(x)
+#' s: The scale parameter of the GP distribution
+#' xi: The shape parameter of the GP distribution
+#' u: The location parameter of the GP distribution
+#' alpha: a probability such that the scale parameter s is equal to the
+#'   alpha-quantile of the GP distribution
 #' @export
 pgp = function(x, s, xi, u = 0, alpha = .5) {
   if (length(xi) == 1) xi = rep(xi, length(x))
@@ -58,6 +74,15 @@ pgp = function(x, s, xi, u = 0, alpha = .5) {
   res
 }
 
+#' Quantile function for the generalised Pareto (GP) distribution
+#'
+#' Input variables:
+#' p: The input p to the function Q(p)
+#' s: The scale parameter of the GP distribution
+#' xi: The shape parameter of the GP distribution
+#' u: The location parameter of the GP distribution
+#' alpha: a probability such that the scale parameter s is equal to the
+#'   alpha-quantile of the GP distribution
 #' @export
 qgp = function(p, s, xi, u = 0, alpha = .5) {
   if (length(xi) == 1) xi = rep(xi, length(p))
@@ -72,6 +97,7 @@ qgp = function(p, s, xi, u = 0, alpha = .5) {
   res
 }
 
+#' Cumulative distribution function for the Laplace distribution
 #' @export
 plaplace = function(x) {
   res = x
@@ -82,6 +108,7 @@ plaplace = function(x) {
   res
 }
 
+#' Quantile function for the Laplace distribution
 #' @export
 qlaplace = function(p) {
   stopifnot(all(p >= 0 & p <= 1, na.rm = TRUE))

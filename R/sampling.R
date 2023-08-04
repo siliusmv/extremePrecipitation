@@ -1,3 +1,8 @@
+
+#' Function for the threshold occurrence model. This functions takes
+#' a matrix `samples` as input, together with a probability `nonzero_prob`.
+#' Then, all data points in `samples` that are smaller than the `nonzero_prob`-quantile
+#' of `samples` gets set equal to zero.
 #' @export
 threshold_occurrence = function(samples, nonzero_prob) {
   threshold = quantile(samples, probs = 1 - nonzero_prob, na.rm = TRUE)
@@ -5,6 +10,33 @@ threshold_occurrence = function(samples, nonzero_prob) {
   samples
 }
 
+#' Simulate spatial realisations of the precipitation intensity process.
+#'
+#' The input variables are:
+#' samples: an (n x m)-dimensional matrix of hyperparameter samples from the fitted
+#'   spatial conditional extremes model, where n is the total number of samples and
+#'   m is the number of hyperparameters in our chosen model
+#' threshold: The threshold of the spatial conditional extremes model
+#' coords: a (d x 2)-dimensional matrix of the coordinates for all the d locations in which
+#'   we want to simulate data
+#' s0_index: an integer between 1 and d, describing which of the d elements in coords that
+#'   correspond to the conditioning site
+#' spde: an INLA SPDE object which we use for sampling from the SPDE approximation
+#' get_a_func: a function that takes in an m-dimensional vector of hyperparameters and returns
+#'   a function that computes the standardising function a() of the spatial conditional
+#'   extremes model
+#' get_b_func: a function that takes in an m-dimensional vector of hyperparameters and returns
+#'   a function that computes the standardising function b() of the spatial conditional
+#'   extremes model
+#' get_Q: a function that takes in an m-dimensional vector of hyperparameters and returns
+#'   a function that computes the precision matrix of the SPDE approximation
+#' get_tau: a function that takes in an m-dimensional vector of hyperparameters and returns
+#'   a function that computes the precision of the nugget effect
+#' verbose: a Boolean: Should we be verbose or not?
+#' n_cores: an integer describing the number of parallel cores that should be used for
+#'   running the function
+#' n_per_sample: number of spatial realisations of the intensity process that we will
+#'   simulate for each of the n hyperparameter samples
 #' @export
 simulate_intensity_posterior = function(samples,
                                         threshold,
@@ -95,7 +127,6 @@ simulate_intensity_posterior = function(samples,
 #'   for all locations on the triangular mesh used for defining the SPDE.
 #' Q: Precision matrix of the weights used for building the SPDE approximation.
 #' tau: Precision of the nugget effect.
-#' threshold: The threshold t used for defining the conditional extremes distribution.
 #' dist_to_s0: List containing the distances to s0 for all observation locations,
 #'   used for computing a. The list contains one vector of distances for each
 #'   possible conditioning site in the domain of interest. Each of the distance
@@ -159,6 +190,34 @@ rnorm_spde = function(n, Q, ...) {
   res
 }
 
+#' Simulate spatial realisations of the precipitation occurrence process using
+#' the spatial probit model
+#'
+#' The input variables are:
+#' hyperpar_samples: an (n x m)-dimensional matrix of hyperparameter samples from the fitted
+#'   spatial probit model, where n is the total number of samples and
+#'   m is the number of hyperparameters in our chosen model
+#' fixed_samples: an (n x k)-dimensional matrix of samples for the parameters of the fixed
+#'   effects of the spatial probit model, i.e., those describing the spline function in
+#'   the mean structure of the latent field
+#' coords: a (d x 2)-dimensional matrix of the coordinates for all the d locations in which
+#'   we want to simulate data
+#' spde: an INLA SPDE object which we use for sampling from the SPDE approximation
+#' s0_index: an integer between 1 and d, describing which of the d elements in coords that
+#'   correspond to the conditioning site
+#' constr_index: an index describing which mesh nodes that should be constrained to zero
+#'   in the SPDE approximation
+#' create_X: a function that takes in the distance to the conditioning site and outputs
+#'   a design matrix with all the basis functions for the spline function
+#' create_Q: a function that takes in an m-dimensional vector of hyperparameters and an INLA spde
+#'   object, and returns the precision matrix of the SPDE approximation
+#' replace_zeros_at_s0: a Boolean: Should we enforce I(s0) = 1 by resampling from the model
+#'   whenever we get a realisation that gives I(s0) = 0?
+#' verbose: a Boolean: Should we be verbose or not?
+#' n_cores: an integer describing the number of parallel cores that should be used for
+#'   running the function
+#' n_per_sample: number of spatial realisations of the occurrence process that we will
+#'   simulate for each of the n hyperparameter samples
 #' @export
 simulate_spat_probit_posterior = function(hyperpar_samples,
                                           fixed_samples,
@@ -179,30 +238,39 @@ simulate_spat_probit_posterior = function(hyperpar_samples,
   A = inla.spde.make.A(spde$mesh, coords)
   if (!is.null(constr_index)) A = A[, -constr_index]
 
+  # Compute distances to the conditioning site and build the design matrix X
   dist_to_s0 = as.numeric(dist_euclid(s0, coords))
   X = create_X(dist_to_s0, df = FALSE)
 
+  # Simulate from the fitted occurrence model
   simulations = local({
     RNGkind("L'Ecuyer-CMRG")
     parallel::mclapply(
       X = seq_len(n_samples),
       mc.cores = n_cores,
       FUN = function(i) {
+        # These are the parameters from model-parameter sample nr. i
         hyperpar = hyperpar_samples[i, ]
         fixed_par = fixed_samples[i, ]
 
+        # Create and maybe constrain the precision matrix
         Q = create_Q(hyperpar, spde)
         if (!is.null(constr_index)) Q = Q[-constr_index, -constr_index]
 
+        # Compute the spline function in the mean
         mean_trend = as.numeric(X %*% fixed_par)
 
+        # Preallocate the matrix of occurrence samples
         simulations = matrix(NA_real_, nrow = nrow(A), ncol = n_per_sample)
         bad_index = seq_len(n_per_sample)
         while (TRUE) {
+          # Simulate from the SPDE model, and transform linear predictor using the probit link
           simulations[, bad_index] = as.matrix(A %*% rnorm_spde(length(bad_index), Q))
           p = pnorm(simulations[, bad_index] + mean_trend)
+          # Simulate occurrences using the Bernoulli distribution
           simulations[, bad_index] = as.integer(rbinom(length(p), 1, p))
           bad_index = which(simulations[s0_index, ] == 0)
+          # Should we replace zeros at s0 or not?
           if (!replace_zeros_at_s0 || length(bad_index) == 0) break
         }
 
@@ -214,12 +282,33 @@ simulate_spat_probit_posterior = function(hyperpar_samples,
       })
   })
 
+  # Return the results
   list(
     simulations = do.call(cbind, simulations),
     coords = coords,
     dist = dist_to_s0)
 }
 
+#' Simulate spatial realisations of the precipitation occurrence process using
+#' the non-spatial probit model
+#'
+#' The input variables are:
+#' fixed_samples: an (n x k)-dimensional matrix of samples for the parameters of the fixed
+#'   effects of the spatial probit model, i.e., those describing the spline function in
+#'   the mean structure of the latent field
+#' coords: a (d x 2)-dimensional matrix of the coordinates for all the d locations in which
+#'   we want to simulate data
+#' s0_index: an integer between 1 and d, describing which of the d elements in coords that
+#'   correspond to the conditioning site
+#' create_X: a function that takes in the distance to the conditioning site and outputs
+#'   a design matrix with all the basis functions for the spline function
+#' replace_zeros_at_s0: a Boolean: Should we enforce I(s0) = 1 by resampling from the model
+#'   whenever we get a realisation that gives I(s0) = 0?
+#' verbose: a Boolean: Should we be verbose or not?
+#' n_cores: an integer describing the number of parallel cores that should be used for
+#'   running the function
+#' n_per_sample: number of spatial realisations of the occurrence process that we will
+#'   simulate for each of the n hyperparameter samples
 #' @export
 simulate_probit_posterior = function(fixed_samples,
                                      coords,
@@ -233,9 +322,11 @@ simulate_probit_posterior = function(fixed_samples,
 
   s0 = coords[s0_index, , drop = FALSE]
 
+  # Compute distances to the conditioning site and build the design matrix X
   dist_to_s0 = as.numeric(dist_euclid(s0, coords))
   X = create_X(dist_to_s0, df = FALSE)
 
+  # Simulate from the fitted occurrence model
   simulations = local({
     RNGkind("L'Ecuyer-CMRG")
     parallel::mclapply(
@@ -244,14 +335,19 @@ simulate_probit_posterior = function(fixed_samples,
       FUN = function(i) {
         fixed_par = fixed_samples[i, ]
 
+        # Compute the spline function in the mean
         mean_trend = as.numeric(X %*% fixed_par)
 
+        # Preallocate the matrix of occurrence samples
         simulations = matrix(NA_real_, nrow = nrow(coords), ncol = n_per_sample)
         bad_index = seq_len(n_per_sample)
         while (TRUE) {
+          # transform linear predictor using the probit link
           p = pnorm(rep(mean_trend, length(bad_index)))
+          # Simulate occurrences using the Bernoulli distribution
           simulations[, bad_index] = as.integer(rbinom(length(p), 1, p))
           bad_index = which(simulations[s0_index, ] == 0)
+          # Should we replace zeros at s0 or not?
           if (!replace_zeros_at_s0 || length(bad_index) == 0) break
         }
 
@@ -263,9 +359,9 @@ simulate_probit_posterior = function(fixed_samples,
       })
   })
 
+  # Return the results
   list(
     simulations = do.call(cbind, simulations),
     coords = coords,
     dist = dist_to_s0)
 }
-

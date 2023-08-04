@@ -2,23 +2,17 @@
 % Please edit documentation in R/marginal-distributions.R
 \name{inv_transform}
 \alias{inv_transform}
-\title{x: The data to be transformed
-a: shape-parameter of the gamma distribution
-b: rate-parameter of the gamma distribution
-u: threshold for the GP distribution
-u_prob: The probability corresponding to the threshold u
-xi: Tail parameter of the GP distribution
-s: Scale parameter of the GP distribution
-alpha: probability deciding which quantile the scale parameter is equal to}
+\title{Transform a random variable on the Laplace scale back to the precipitation scale
+using the probability integral transform}
 \usage{
-inv_transform(x, a, b, u, u_prob, xi, s, alpha)
+inv_transform(x, a, b, u, p_u, xi, s, alpha)
 }
 \description{
 x: The data to be transformed
 a: shape-parameter of the gamma distribution
 b: rate-parameter of the gamma distribution
 u: threshold for the GP distribution
-u_prob: The probability corresponding to the threshold u
+p_u: The probability corresponding to the threshold u
 xi: Tail parameter of the GP distribution
 s: Scale parameter of the GP distribution
 alpha: probability deciding which quantile the scale parameter is equal to

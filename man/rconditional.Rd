@@ -15,7 +15,6 @@ for all locations with observations, while b_func requires the distance to s0
 for all locations on the triangular mesh used for defining the SPDE.
 Q: Precision matrix of the weights used for building the SPDE approximation.
 tau: Precision of the nugget effect.
-threshold: The threshold t used for defining the conditional extremes distribution.
 dist_to_s0: List containing the distances to s0 for all observation locations,
 used for computing a. The list contains one vector of distances for each
 possible conditioning site in the domain of interest. Each of the distance
@@ -46,7 +45,6 @@ for all locations with observations, while b_func requires the distance to s0
 for all locations on the triangular mesh used for defining the SPDE.
 Q: Precision matrix of the weights used for building the SPDE approximation.
 tau: Precision of the nugget effect.
-threshold: The threshold t used for defining the conditional extremes distribution.
 dist_to_s0: List containing the distances to s0 for all observation locations,
 used for computing a. The list contains one vector of distances for each
 possible conditioning site in the domain of interest. Each of the distance

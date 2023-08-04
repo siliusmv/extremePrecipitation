@@ -1,3 +1,20 @@
+#' Function for defining a cgeneric model for a.
+#'
+#' The input variables are:
+#' y0: A vector of equal length to the data (y_inla) used for running R-INLA,
+#'   such that y0[i] contains the value at the conditioning site for the same
+#'   time as when y_inla[i] was observed.
+#' threshold: The value of the threshold for the conditional extremes model.
+#' dist_to_s0: A vector of equal length to y_inla, such that dist_to_s0[i] contains
+#'   the distance from the location where y_inla[i] was observed, to the conditioning
+#'   site where y0[i] was observed.
+#' init: Initial values for the model parameters.
+#' priors: Priors for the model parameters. This is a list with one element per model parameter,
+#'   with names "lambda0", "lambda_lambda", "kappa0", "lambda_kappa" and "kappa_kappa".
+#'   Each element contains hyperparameters for the prior of that specific model parameter.
+#' is_fixed: A vector of bools, stating whether each model parameter should be fixed to its
+#'   initial value or if it should be estimated.
+#' debug: A boolean stating if R-INLA should print debug information or not.
 #' @export
 a_model = function(y0,
                    threshold,
@@ -41,6 +58,26 @@ a_model = function(y0,
   do.call(INLA::inla.cgeneric.define, args)
 }
 
+#' Function for defining a cgeneric model for Z_b.
+#'
+#' The input variables are:
+#' n: A vector of length equal to the number of unique conditioning sites used
+#'   for inference. Element nr. i of n contains the number of threshold exceedances
+#'   found at conditioning site nr. i.
+#' y0: A vector of length sum(n), with all of the observed threshold exceedance values
+#' spde: A list with length equal to n, of inla.spde2 objects that each contains
+#'   the matrices M0, M1, M2, B0, B1 and B2,
+#'   which are necessary for computing the precision matrix of the Gaussian Matérn
+#'   field used for creating the SPDE approximation.
+#' init: Initial values for the model parameters
+#' priors: Priors for the parameters of Z_b. This is a list with one element per model parameter,
+#'   with names "sigma", "rho", "s0", "lambda" and "kappa". Each element contains hyperparameters
+#'   for the prior of that specific model parameter.
+#' dist_to_s0: A list of length equal to the n, where element nr. i contains the distances
+#'   from all the mesh nodes in spde[i] to conditioning site nr. i.
+#' is_fixed: A vector of bools, stating whether each model parameter should be fixed to its
+#'   initial value or if it should be estimated.
+#' debug: A boolean stating if R-INLA should print debug information or not.
 #' @export
 spde_b_model = function(n,
                         y0,
@@ -104,7 +141,10 @@ spde_b_model = function(n,
 }
 
 
-
+#' Function for defining an SPDE model that uses multiple different meshes,
+#' that can be constrained at multiple different locations.
+#'
+#' The input variables are:
 #' spdes: a list of M spdes
 #' priors: a list of PC priors for the range and standard deviation parameters
 #' init: initial values for the range and standard deviation parameters

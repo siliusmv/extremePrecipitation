@@ -26,11 +26,17 @@ s0_index: a vector of indices describing which of the d coordinates are chosen
 as conditioning sites.
 threshold: The threshold t for the conditional extremes model. This can either be a single
 number, or a vector with one element for each of the n columns of the data
-remove_y0_from_y: a Boolean stating whether y0 should be removed from y or not
-obs_index: A vector of indices showing which coordinates we care about.
+obs_index: A vector of indices showing which coordinates we care about extracting
+data from
 n, r: Used for only extracting a subset of the observations in a circle around
 the conditioning site. See the docs for extract_thinned_out_circles() for more info.
 If obs_index is non-null, we will not use the values of n and r.
+verbose: Boolean. Should we print the progress or not?
+remove_y0_from_y: a Boolean stating whether y0 should be removed from y in the
+extracted data, or not. See the output section for a better understanding of what
+this means
+n_cores: an integer describing how many cores in parallel should be used
+for running the function
 }
 \details{
 The output of the function is a list where each element is a list or vector
@@ -53,4 +59,6 @@ time_index: A list where element nr. i contains the times of all threshold
 exceedances from conditioning site nr. i.
 n: A vector where element nr. i is the number of threshold exceedances at
 conditioning site nr. i.
+n_loc: A vector where element nr. i is the number of locations we have extracted
+observations from for conditioning site nr. i.
 }
