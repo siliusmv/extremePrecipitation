@@ -108,8 +108,8 @@ plot = ggplot(df) +
     panel.ontop = TRUE,
     panel.background = element_blank()) +
   geom_sf(data = rissa, shape = 17, size = 1.5) +
-  geom_sf(data = s0, size = 1.5) +
-  geom_sf_text(data = dplyr::mutate(st_as_sf(s0), label = 1:5), aes(label = label),
+  geom_sf(data = radar$s0, size = 1.5) +
+  geom_sf_text(data = dplyr::mutate(st_as_sf(radar$s0), label = 1:5), aes(label = label),
                #nudge_y = 2000, size = 5) +
                nudge_y = c(-3, 0, 3, 0, 3) * 1000,
                nudge_x = c(0, -3, 0, -3, 0) * 1000,
