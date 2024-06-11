@@ -185,6 +185,15 @@ for (i in 1:6) {
 }
 plot_data = do.call(rbind, plot_data)
 
+latex_friendly_map_plot = function(x) {
+  info = ggplot2::ggplot_build(x)$layout$panel_params[[1]]$graticule
+  east_ticks = info$degree[info$type == "E" & info$y_start == 0]
+  north_ticks = info$degree[info$type == "N" & info$x_start == 0]
+  x +
+    ggplot2::scale_x_continuous(breaks = east_ticks, labels = paste0(east_ticks, "$^\\circ$E"), expand = c(0, 0)) +
+    ggplot2::scale_y_continuous(breaks = north_ticks, labels = paste0(north_ticks, "$^\\circ$N"), expand = c(0, 0))
+}
+
 # Plot the random occurrence realisations
 plot3 = plot_data |>
   ggplot() +
